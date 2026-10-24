@@ -58,6 +58,8 @@ function makeContext(m: Model) {
     still: () => false,
     dark: () => false,
     hud,
+    overlay: hud,
+    camera: { pose: () => ({ position: [0, 0, 0], target: [0, 0, 0] }), look() {}, orbit() {} },
     signals: {
       violations: ref(0),
       storeyViolations: ref(new Map()),

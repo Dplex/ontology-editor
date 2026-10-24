@@ -99,6 +99,7 @@ function hudRoot(): HTMLElement {
 function contextFor(id: string, run: Running): EggContext {
   const v = viewer!
   let hud: HTMLElement | null = null
+  let overlay: HTMLElement | null = null
   let wideByEgg = false
   return {
     model: () => model.value,
@@ -108,6 +109,7 @@ function contextFor(id: string, run: Running): EggContext {
       run.cleanup.push(off)
       return off
     },
+    camera: v.eggCamera,
     lights(o) {
       const off = v.setLights(o)
       run.cleanup.push(off)
@@ -136,6 +138,17 @@ function contextFor(id: string, run: Running): EggContext {
         hud = el
       }
       return hud
+    },
+    get overlay() {
+      if (!overlay) {
+        const el = document.createElement('div')
+        el.dataset.testid = `egg-overlay-${id}`
+        el.style.cssText = 'position:absolute;inset:0;pointer-events:none'
+        hudRoot().append(el)
+        run.cleanup.push(() => el.remove())
+        overlay = el
+      }
+      return overlay
     },
     signals,
   }
@@ -223,11 +236,27 @@ const swallow = (e: KeyboardEvent) => {
   e.preventDefault()
   e.stopImmediatePropagation()
 }
+// 비행 중 Q·E 를 0.12초 안에 같이 누르면 방 이름 자막(title)을 켜고 끈다. 지금 둘을 같이 누르면 오르내림이 상쇄돼 아무 일도 없다.
+// 키를 삼키지 않는다 — 비행은 그대로 둘을 받는다.
+const CHORD_MS = 120
+const chordDown = { KeyQ: -Infinity, KeyE: -Infinity }
+function onChord(e: KeyboardEvent) {
+  if (!flying.value || (e.code !== 'KeyQ' && e.code !== 'KeyE')) return
+  const now = performance.now()
+  chordDown[e.code] = now
+  const other = chordDown[e.code === 'KeyQ' ? 'KeyE' : 'KeyQ']
+  if (now - other <= CHORD_MS) {
+    chordDown.KeyQ = chordDown.KeyE = -Infinity
+    void toggleEgg('title')
+  }
+}
+
 /** window 의 capture 단계에서 받는다. 판이 떠 있을 때의 Esc·숫자는 편집기 단축키(keyboard.ts)까지 가지 않는다. */
 function onKey(e: KeyboardEvent) {
   if (e.isComposing || e.repeat || !model.value || replayOpen.value) return
   if (e.target instanceof Element && e.target.closest('dialog[open]')) return
   const plain = !(e.ctrlKey || e.metaKey || e.altKey)
+  if (plain && !e.shiftKey && !isTextEntry(e.target)) onChord(e)
   // Shift+` 는 성능 표(`)의 조합에 맞지 않는다(shortcuts.ts — shift 를 적지 않은 조합은 Shift 가 붙으면 안 맞는다).
   if (e.code === 'Backquote' && e.shiftKey && plain && !isTextEntry(e.target)) {
     if (hub) closeHub()

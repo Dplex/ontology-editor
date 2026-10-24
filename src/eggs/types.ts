@@ -4,10 +4,11 @@
 // TTL 을 바꾸는 길을 아예 두지 않으려는 것이다(eggs.test.ts 가 import 를 훑어 막는다).
 import type { Ref } from 'vue'
 import type { Model } from '../lib/model'
-import type { ViewerLayer } from '../lib/viewer'
+import type { Viewer, ViewerLayer } from '../lib/viewer'
 
 /** 3D 에 얹는 층. 뷰어의 것 그대로다(lib/viewer.ts 의 ViewerLayer). */
 export type SceneLayer = ViewerLayer
+export type ViewerCamera = Viewer['eggCamera']
 
 /** 화면이 이미 센 값. egg 가 다시 재지 않는다. */
 export type EggSignals = {
@@ -30,6 +31,11 @@ export type EggContext = {
   modelVersion(): number
   /** 3D 에 층을 얹는다. 돌려준 함수로 일찍 뗄 수 있고, 안 떼도 egg 를 끄면 껍데기가 뗀다. */
   addLayer(layer: SceneLayer): () => void
+  /**
+   * 시점(장면 좌표, y 위). 모델이 아니라 화면 상태라 연다. `look` 은 눈·대상을 바로 놓고 `orbit` 은 방향 큐브 끌기와 같은 회전(px)이다.
+   * 끈 뒤 시점을 되돌릴지는 egg 가 정한다(tour 는 되돌리고, cube 는 사람이 튕긴 그대로 둔다).
+   */
+  readonly camera: ViewerCamera
   /** 바탕 빛(하늘빛·카메라 주광)의 세기를 잠시 바꾼다. 끄면 껍데기가 되돌린다. */
   lights(o: { hemi?: number; sun?: number }): () => void
   /** 넓게 보기(Ctrl+\)를 켜고 끈다. egg 가 켰으면 끌 때 껍데기가 같이 끈다. */
@@ -37,8 +43,10 @@ export type EggContext = {
   /** 움직임 끄기(prefers-reduced-motion)·안 보이는 탭이면 참. 참이면 이동·확대를 빼고 결과 상태만 보인다. */
   still(): boolean
   dark(): boolean
-  /** 이 egg 의 HUD 자리(3D 칸을 덮는 상자 안, pointer-events: none). 처음 읽을 때 생기고 끄면 지워진다. */
+  /** 이 egg 의 HUD 자리. 껍데기가 3D 칸 왼쪽 아래 한 기둥에 쌓으니 egg 는 자리를 정하지 않는다. 처음 읽을 때 생기고 끄면 지워진다. */
   readonly hud: HTMLElement
+  /** 3D 칸 전체를 덮는 자리(pointer-events: none). 자막·위아래 띠처럼 HUD 기둥 밖에 놓을 것. 처음 읽을 때 생기고 끄면 지워진다. */
+  readonly overlay: HTMLElement
   readonly signals: EggSignals
 }
 

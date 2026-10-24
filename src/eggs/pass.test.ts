@@ -102,6 +102,8 @@ describe('pass — 기준선 통과', () => {
       still: () => true,
       dark: () => false,
       hud,
+      overlay: hud,
+      camera: { pose: () => ({ position: [0, 0, 0], target: [0, 0, 0] }), look() {}, orbit() {} },
       signals: {
         violations,
         storeyViolations,

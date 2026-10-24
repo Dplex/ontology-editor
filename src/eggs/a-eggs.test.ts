@@ -95,3 +95,32 @@ describe('heat — 풍량 밀도', () => {
     expect(r.sources).toEqual({ bim: 2, edit: 0 })
   })
 })
+
+describe('title — 방 이름 자막', () => {
+  it('방마다 센 설비 수가 TTL 의 hasLocation 수와 같고, 눈 자리의 층·방을 찾는다', async () => {
+    const { readFileSync } = await import('node:fs')
+    const WebIFC = await import('web-ifc')
+    const { importIfc } = await import('../lib/ifc/import')
+    const { modelToTTL } = await import('../lib/export/ttl')
+    const { readOntologyTTL } = await import('../lib/export/read-ttl')
+    const { devicesIn, roomAt } = await import('./title')
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    for (const f of ['src/lib/ifc/fixtures/mep.ifc', 'src/lib/ifc/fixtures/two-rooms.ifc']) {
+      const model = importIfc(api, new Uint8Array(readFileSync(f)))
+      const reading = readOntologyTTL(modelToTTL(model))
+      for (const st of model.storeys) {
+        for (const sp of st.spaces) {
+          const ttl = reading.entities.filter((e) => e.locations.includes(sp.id)).length
+          expect(devicesIn(st, sp.id), `${f} ${sp.id}`).toBe(ttl)
+          if (sp.footprint.length < 3) continue
+          const cx = sp.footprint.slice(0, -1).reduce((n, p) => n + p[0], 0) / (sp.footprint.length - 1)
+          const cy = sp.footprint.slice(0, -1).reduce((n, p) => n + p[1], 0) / (sp.footprint.length - 1)
+          const t = roomAt(model, [cx, cy, st.elevation + 1.6])
+          // 볼록하지 않은 방은 무게중심이 밖일 수 있다 — 안이면 그 방이어야 한다.
+          if (t) expect(t.storey).toBe(st.name)
+        }
+      }
+    }
+  })
+})

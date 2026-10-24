@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { openDrawer, pickedCard, pickEquipment } from './edit-part'
+import { openDrawer, pickedCard, pickEquipment, pickSpace } from './edit-part'
 
 // 숨은 연출(egg)의 껍데기(editor/eggs.ts, docs/plans/easter-eggs.md). 기본은 꺼짐이고, 켰다 끄면 3D 층·빛·HUD·GPU 메모리와
 // 내보내는 것(TTL·GeoJSON·모델)이 켜기 전과 같아야 한다. e2e 에서만 목록에 드는 시험용 egg(probe)로 껍데기를 잰다.
@@ -421,6 +421,56 @@ test('heat — 방을 밀도 구간으로 칠하고 값 없는 방은 따로 세
   await page.waitForTimeout(500)
   expect(await viewer<number>(page, 'renders')).toBe(r0)
   await oe(page, 'eggOff', 'heat')
+  expect(errors).toEqual([])
+})
+
+test('title — 비행 중 Q·E 를 같이 누르면 켜지고, 층 눈높이로 방에 들어서면 그 층·방 이름과 면적·설비 수가 뜬다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  // two-rooms.ifc 는 1F 0m · 2F 3m 라 비행의 층 눈높이가 1.6m · 4.6m 다(nav-cube.spec.ts).
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await settle(page)
+  // 방 101 을 골라 그 방으로 시점을 맞춘다(F). 비행은 그 시점에서 시작하고, W 로 대상(방 가운데) 쪽으로 걸어 들어간다.
+  await pickSpace(page, '101')
+  await page.keyboard.press('f')
+  await settle(page)
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  // 비행이 아닐 때의 Q·E 는 손짓이 아니다.
+  await page.keyboard.down('q')
+  await page.keyboard.down('e')
+  await page.keyboard.up('e')
+  await page.keyboard.up('q')
+  expect((await eggs(page)).on).toEqual([])
+  await page.keyboard.press('g')
+  await expect(page.getByTestId('fly-badge')).toBeVisible()
+  await page.keyboard.down('q')
+  await page.keyboard.down('e')
+  await page.keyboard.up('e')
+  await page.keyboard.up('q')
+  await expect.poll(async () => (await eggs(page)).on).toEqual(['title'])
+  // 1F 눈높이(1.6m)로 내려간다(Q Q 를 두 번 — 처음은 2F, 다음이 1F).
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.press('q')
+    await page.keyboard.press('q')
+    await settle(page)
+  }
+  expect((await eggs(page)).inspect.title.shown).toBe(0)
+  // 눈을 방 101(IFC 2..6 × 1..4) 가운데에 놓는다. 장면 좌표는 (x, 높이, -y) 다.
+  await page.evaluate(() => (window as any).__viewer.look([4, 1.6, -2.5], [5, 1.6, -2.5]))
+  await expect.poll(async () => (await eggs(page)).inspect.title.shown).toBe(1)
+  // 나갔다가 10초 안에 다시 들어오면 띄우지 않는다.
+  await page.evaluate(() => (window as any).__viewer.look([30, 1.6, 20], [31, 1.6, 20]))
+  await expect.poll(async () => (await eggs(page)).inspect.title.current).toBe(null)
+  await page.evaluate(() => (window as any).__viewer.look([4, 1.6, -2.5], [5, 1.6, -2.5]))
+  await expect.poll(async () => (await eggs(page)).inspect.title.current).not.toBe(null)
+  expect((await eggs(page)).inspect.title.shown).toBe(1)
+  const t = (await eggs(page)).inspect.title
+  await expect(page.getByTestId('egg-title')).toContainText(`${t.last.storey} · `)
+  await expect(page.getByTestId('egg-title')).toContainText(`설비 ${t.last.devices}대`)
+  await page.keyboard.press('Escape')
+  await oe(page, 'eggOff', 'title')
   expect(errors).toEqual([])
 })
 

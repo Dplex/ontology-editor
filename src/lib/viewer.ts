@@ -585,6 +585,11 @@ export type Viewer = {
    */
   setLights(o: { hemi?: number; sun?: number }): () => void
   /**
+   * 숨은 연출(src/eggs/)이 시점을 다루는 자리. 시점은 모델이 아니라 화면 상태라 egg 에 연다 — 방향 큐브를 튕기면 관성으로 돌고(cube),
+   * 대기 화면이 계통을 따라간다(tour). 장면 좌표(y 위)다. `look` 은 눈과 대상을 바로 놓고, `orbit` 은 방향 큐브 끌기와 같은 회전(px)이다.
+   */
+  eggCamera: { pose(): { position: [number, number, number]; target: [number, number, number] }; look(position: readonly [number, number, number], target: readonly [number, number, number]): void; orbit(dx: number, dy: number): void }
+  /**
    * 보일 층만 남긴다. storeys 가 null 이면 전부. hidden 은 숨길 설비 id(그 층에 없는 설비) — 층과 설비의 짝은 편집으로
    * 바뀌므로(층 옮기기) 화면이 셈해서 준다. 숨긴 것은 그리지도, 고르지도 않는다.
    */
@@ -3529,6 +3534,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
       /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
+      /** 눈·대상을 바로 놓는다(장면 좌표). egg 의 시험이 눈을 방 안에 둘 때 쓴다. */
+      look: (position: [number, number, number], target: [number, number, number]) => api.eggCamera.look(position, target),
       flying: () => (flying ? { keys: [...flying.keys], scale: flying.scale } : null),
       /** 휠 클릭으로 정한 회전 중심 고리가 떠 있나. */
       pivot: () => (pivotMark ? pivotMark.at.toArray() : null),
@@ -4723,6 +4730,19 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         layer.dispose?.()
         dirty = true
       }
+    },
+
+    eggCamera: {
+      pose: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
+      look(position, target) {
+        flight = null
+        camera.position.set(...position)
+        controls.target.set(...target)
+        camera.lookAt(controls.target)
+        controls.update()
+        dirty = true
+      },
+      orbit: (dx, dy) => orbitBy(dx, dy),
     },
 
     setLights(o) {
