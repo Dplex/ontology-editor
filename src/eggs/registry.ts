@@ -2,6 +2,7 @@
 import type { Egg } from './types'
 
 export const EGGS: readonly Egg[] = [
+  { id: 'xray', title: '온톨로지 투시', load: () => import('./xray') },
   // 시험용 본보기(probe.ts). e2e 에서만 든다 — 빌드에서는 이 갈래가 상수로 접혀 사라진다.
   ...(import.meta.env.MODE === 'e2e' ? [{ id: 'probe', title: '시험용 본보기', load: () => import('./probe') }] : []),
 ]

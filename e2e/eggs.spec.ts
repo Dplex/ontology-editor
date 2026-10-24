@@ -138,6 +138,38 @@ test('probe — 켜 둔 동안만 매 프레임 그리고 빛을 바꾸며, 끄�
   expect(errors).toEqual([])
 })
 
+test('xray — 꺼져 있을 때 Space 는 아무 일도 하지 않고, 켜면 TTL 관계 수·HUD·그래프 선 수가 일치하며 Space 로 여닫는다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  const snap0 = await oe(page, 'exportSnapshot')
+  await page.locator('.viewport canvas').hover()
+  await page.keyboard.down('Space')
+  await page.waitForTimeout(150)
+  await page.keyboard.up('Space')
+  expect((await eggs(page)).on).toEqual([])
+  expect(await viewer(page, 'layers')).toBe(0)
+  expect(await oe(page, 'exportSnapshot')).toEqual(snap0)
+
+  expect(await oe(page, 'eggOn', 'xray')).toBe(true)
+  const info = (await eggs(page)).inspect.xray
+  expect(info.feeds).toBeGreaterThan(0)
+  expect(info.graph.feeds).toBe(info.feeds)
+  expect(info.graph.hasLocation).toBe(info.hasLocation)
+  expect(info.graph.hasPart).toBe(info.hasPart)
+  await expect(page.getByTestId('egg-hud-xray')).toContainText(`받는 쪽이 읽는 관계 · feeds ${info.feeds.toLocaleString()}`)
+  await expect(page.getByTestId('egg-hud-xray')).toContainText(`덕트·배관(fso:) ${info.unread.toLocaleString()}개는 받는 쪽이 읽지 않아 그리지 않았습니다`)
+
+  await page.keyboard.down('Space')
+  await expect.poll(async () => (await eggs(page)).inspect.xray.holding).toBe(true)
+  await page.keyboard.up('Space')
+  await expect.poll(async () => (await eggs(page)).inspect.xray.holding).toBe(false)
+  await expect.poll(async () => (await eggs(page)).inspect.xray.alpha).toBe(0)
+
+  await oe(page, 'eggOff', 'xray')
+  await settle(page)
+  expect(errors).toEqual([])
+})
+
 test.describe('움직임을 끈 사람', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } })
   test('probe 를 켜도 얹을 때 한 장만 그리고 0장이다', async ({ page }) => {

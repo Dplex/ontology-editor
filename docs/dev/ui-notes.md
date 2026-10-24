@@ -454,3 +454,17 @@ Unity 판과 나란히 보일 자리를 앞두고 3D 연출을 더하되, PRD �
   `__viewer.layers()`·`lights()`·`memory()`, HUD 가 켜기 전과 같다. probe 가 형상을 안 버리거나 모델을 고치게 바꿔 보면 이 시험이 떨어진다(2026-10-24 확인).
 - 되돌리려면 `src/editor/index.ts` 의 `setupEggs()` 와 `src/editor/eggs.ts`·`src/eggs/`·`e2e/eggs.spec.ts` 를 지우고, viewer.ts 의
   `--- 화면 연출 층` 절과 `addLayer`·`setLights`·tick 의 `layers` 두 줄, `__viewer` 의 `layers`·`memory`·`lights` 를 뺀다.
+
+## 숨은 연출 S1 `xray` — 온톨로지 투시 (2026-10-24)
+
+내보낼 Brick TTL 을 받는 쪽 규칙(`readOntologyTTL`)으로 읽은 그래프를 건물 자리에 그대로 세운다. 화면의 점과 선 하나가 곧 TTL·GeoJSON 의 줄 하나다.
+
+- **데이터와 모양**(`src/eggs/xray.ts`). `readOntologyTTL(modelToTTL(model))` 과 `modelToGeoJSON(model)` 만 읽고 새로 판정하지 않는다.
+  설비는 제자리의 점(`Points` 1개, 종류별 색 `X` 와 같은 팔레트 · `ex:` 는 자홍 `#c2185b`), 물리존은 바닥 중심의 고리, 층은 건물 옆에 세운 기둥의 마디다.
+  `brick:feeds` 는 `flowPulseMesh` 의 흐르는 빛, `brick:hasLocation` 은 설비에서 방으로 가는 선(`LineSegments` 1개), `brick:hasPart` 는 방·구성원에서 층 기둥으로 휘는 곡선(`LineSegments` 1개)이다.
+- **어두운 막과 손짓.** 건물 재질을 바꾸지 않고 `afterRender` 에서 화면 전체 사각형(바탕 85%)을 먼저 그린 뒤 같은 카메라로 그래프 장면을 덧그린다.
+  `~` 판이나 콘솔로 켜면 0.25초에 서고, 3D 위에서 `Space` 를 누르고 있는 동안 흐르며 떼면 0.2초에 물러난다(끌기·그리기 도구가 도는 동안은 가로채지 않는다).
+  HUD 두 줄에 `받는 쪽이 읽는 관계 · feeds … · hasLocation … · hasPart … · 화면에서만` 과 `덕트·배관(fso:) …개는 받는 쪽이 읽지 않아 그리지 않았습니다` 를 적는다.
+- **숫자.** `mep.ifc` 기준 그래프 짓기 약 2~5ms(`feeds` · `hasLocation` · `hasPart` 수와 그래프 선 수 일치), 가만히 있을 때 0장, 끄면 `renderer.info.memory` 가 켜기 전으로 돌아온다.
+- **하지 않은 것.** 힘 기반 배치(실제 자리를 떠나면 건물 안의 그래프가 아니게 된다), 점마다 라벨 달기(성수 2만 개에서 겹친다).
+- 되돌리려면 `src/eggs/xray.ts`·`src/eggs/xray.test.ts` 와 `src/eggs/registry.ts` 의 `xray` 줄, `e2e/eggs.spec.ts` 의 `xray` 시험을 뺀다.
