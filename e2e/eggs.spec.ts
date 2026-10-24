@@ -474,6 +474,39 @@ test('title — 비행 중 Q·E 를 같이 누르면 켜지고, 층 눈높이로
   expect(errors).toEqual([])
 })
 
+test('cube — 방향 큐브를 세게 끌다 놓으면 관성으로 돌다 가장 가까운 면에 멈추고, 천천히 놓으면 그 자리다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'cube')).toBe(true)
+  const cube = (await page.locator('canvas[aria-label^="방향 큐브"]').boundingBox())!
+  const cx = cube.x + cube.width / 2
+  const cy = cube.y + cube.height / 2
+  // 천천히 끌다 놓는다. 튕기지 않는다.
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  for (let i = 1; i <= 6; i++) {
+    await page.mouse.move(cx + i * 3, cy)
+    await page.waitForTimeout(60)
+  }
+  await page.waitForTimeout(150)
+  await page.mouse.up()
+  await settle(page)
+  expect((await eggs(page)).inspect.cube.flings).toBe(0)
+  // 세게 끌다 놓는다. 헤드리스의 이동 이벤트는 한 장(약 30ms)마다라 멀리 끌어야 사람이 튕기는 속도(1px/ms 이상)가 된다.
+  await page.mouse.move(cx - 30, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx + 220, cy + 10, { steps: 4 })
+  await page.mouse.up()
+  await expect.poll(async () => (await eggs(page)).inspect.cube.flings).toBe(1)
+  await expect.poll(async () => (await eggs(page)).inspect.cube.snaps, { timeout: 10_000 }).toBe(1)
+  // 눈의 방향이 한 축에 붙었다(면을 보고 있다).
+  const dir = (await eggs(page)).inspect.cube.dir as number[]
+  expect(Math.max(...dir.map(Math.abs))).toBeGreaterThan(0.99)
+  await settle(page)
+  await oe(page, 'eggOff', 'cube')
+  expect(errors).toEqual([])
+})
+
 test.describe('움직임을 끈 사람', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } })
   test('rise 는 틀지 않고 wipe 는 전환 없이 테마만 바꾼다', async ({ page }) => {
