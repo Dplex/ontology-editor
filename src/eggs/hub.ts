@@ -21,14 +21,17 @@ export function createHub(root: HTMLElement, host: HubHost) {
   const list = document.createElement('ol')
   const foot = document.createElement('p')
   foot.className = 'egg-hub-foot'
-  foot.textContent = host.eggs.length ? '1–9 켜기·끄기 · Esc 닫기 · 화면에서만 바뀝니다' : '아직 든 것이 없습니다 · Esc 닫기'
+  foot.textContent = host.eggs.length
+    ? `${host.eggs.length > 9 ? '1–9 · 나머지는 눌러서' : '1–9'} 켜기·끄기 · Esc 닫기 · 화면에서만 바뀝니다`
+    : '아직 든 것이 없습니다 · Esc 닫기'
 
-  const buttons = host.eggs.slice(0, 9).map((egg, i) => {
+  // 숫자 키는 1~9 뿐이다(0 은 건물 전체 보기). 열 번째부터는 판에서 눌러 켠다.
+  const buttons = host.eggs.map((egg, i) => {
     const b = document.createElement('button')
     b.type = 'button'
     b.dataset.egg = egg.id
     const key = document.createElement('kbd')
-    key.textContent = String(i + 1)
+    key.textContent = i < 9 ? String(i + 1) : '·'
     key.setAttribute('aria-hidden', 'true')
     const id = document.createElement('span')
     id.className = 'egg-id'

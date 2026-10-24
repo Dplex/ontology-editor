@@ -2,6 +2,8 @@
 import type { Egg } from './types'
 
 export const EGGS: readonly Egg[] = [
+  // 시험용 본보기(probe.ts). e2e 에서만 들고, `~` 판의 숫자 키 시험이 1 로 누르도록 맨 앞에 둔다. 빌드에서는 이 갈래가 상수로 접혀 사라진다.
+  ...(import.meta.env.MODE === 'e2e' ? [{ id: 'probe', title: '시험용 본보기', load: () => import('./probe') }] : []),
   { id: 'xray', title: '온톨로지 투시', load: () => import('./xray') },
   { id: 'alive', title: '살아 있는 건물', load: () => import('./alive') },
   { id: 'pass', title: '기준선 통과', load: () => import('./pass') },
@@ -14,6 +16,5 @@ export const EGGS: readonly Egg[] = [
   { id: 'heat', title: '풍량 밀도', load: () => import('./heat') },
   { id: 'title', title: '방 이름 자막', load: () => import('./title') },
   { id: 'cube', title: '방향 큐브 튕기기', load: () => import('./cube') },
-  // 시험용 본보기(probe.ts). e2e 에서만 든다 — 빌드에서는 이 갈래가 상수로 접혀 사라진다.
-  ...(import.meta.env.MODE === 'e2e' ? [{ id: 'probe', title: '시험용 본보기', load: () => import('./probe') }] : []),
+  { id: 'tour', title: '계통을 따라가는 대기 화면', load: () => import('./tour') },
 ]

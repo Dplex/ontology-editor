@@ -507,6 +507,34 @@ test('cube — 방향 큐브를 세게 끌다 놓으면 관성으로 돌다 가�
   expect(errors).toEqual([])
 })
 
+test('tour — 입력 없이 기다리면 UI 를 접고 띠를 내려 feeds 가 가장 많은 계통을 따라가며, 아무 입력에 원래 시점·화면으로 돌아온다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  await page.mouse.move(3, 500)
+  const before = await page.evaluate(() => (window as any).__viewer.camera())
+  expect(await oe(page, 'eggOn', 'tour')).toBe(true)
+  // e2e 는 60초 대신 1.5초를 기다린다(IDLE_MS).
+  await expect.poll(async () => (await eggs(page)).inspect.tour.touring, { timeout: 10_000 }).toBe(true)
+  const info = (await eggs(page)).inspect.tour
+  expect(info.path.feeds).toBeGreaterThan(0)
+  expect(info.path.stops).toBeGreaterThan(1)
+  await expect.poll(async () => (await page.getByTestId('egg-tour-bar').first().boundingBox())?.height ?? 0).toBeGreaterThan(0)
+  await expect(page.getByTestId('egg-tour-caption')).toContainText(info.path.system)
+  const moving = await page.evaluate(() => (window as any).__viewer.camera())
+  expect(moving.position).not.toEqual(before.position)
+
+  await page.mouse.move(400, 400)
+  await expect.poll(async () => (await eggs(page)).inspect.tour.touring).toBe(false)
+  const back = await page.evaluate(() => (window as any).__viewer.camera())
+  for (let i = 0; i < 3; i++) {
+    expect(back.position[i]).toBeCloseTo(before.position[i], 3)
+    expect(back.target[i]).toBeCloseTo(before.target[i], 3)
+  }
+  await expect.poll(async () => (await page.getByTestId('egg-tour-bar').first().boundingBox())?.height ?? 0).toBe(0)
+  await oe(page, 'eggOff', 'tour')
+  expect(errors).toEqual([])
+})
+
 test.describe('움직임을 끈 사람', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } })
   test('rise 는 틀지 않고 wipe 는 전환 없이 테마만 바꾼다', async ({ page }) => {

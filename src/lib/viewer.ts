@@ -2415,6 +2415,27 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 숨은 연출이 3D 에 붙는 자리는 이것 하나다. 층은 제 step 이 참일 때만 다시 그리게 해서, 층이 없거나 층이 가만히 있으면
   // 그리는 장수가 층이 없을 때와 같다.
   const layers = new Set<ViewerLayer>()
+  /**
+   * 층 하나가 던지면 그 층만 떼고 3D 는 계속 돈다. 그대로 두면 tick 의 requestAnimationFrame 이 끊겨 편집기 3D 가 멈춘다
+   * (숨은 연출 tour 의 첫 장이 병원에서 그랬다). 연출은 꾸밈이라 편집을 멈출 자격이 없다.
+   */
+  function guardLayer<T>(layer: ViewerLayer, run: () => T): T | undefined {
+    try {
+      return run()
+    } catch (e) {
+      console.error('[viewer] 연출 층이 던져서 뗍니다', e)
+      if (layers.delete(layer)) {
+        if (layer.object) scene.remove(layer.object)
+        try {
+          layer.dispose?.()
+        } catch {
+          // 버리다 또 던져도 3D 는 계속 간다.
+        }
+      }
+      dirty = true
+      return undefined
+    }
+  }
   const layerTarget = { renderer, scene, camera }
   /** 바탕 빛을 잠시 바꾼 몫들(setLights). 처음 걸 때의 세기를 들고 있다가 다 거두면 그 세기로 돌린다. */
   const lightHolds: { hemi?: number; sun?: number }[] = []
@@ -2474,13 +2495,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       showChunk(next)
       dirty = true
     }
-    for (const layer of layers) if (layer.step?.(now)) dirty = true
+    for (const layer of layers) if (guardLayer(layer, () => layer.step?.(now))) dirty = true
     if (dirty) {
       if (handles.length || rotateKnob) scaleHandles()
       if (rotateLabel) placeRotateLabel()
       const t0 = performance.now()
       renderer.render(scene, camera)
-      for (const layer of layers) layer.afterRender?.(layerTarget)
+      for (const layer of layers) guardLayer(layer, () => layer.afterRender?.(layerTarget))
       hoverOutline.render(scene, camera)
       selectionOutline.render(scene, camera)
       conflictOutline.render(scene, camera)
