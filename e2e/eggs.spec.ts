@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { pickedCard, pickEquipment } from './edit-part'
+import { openDrawer, pickedCard, pickEquipment } from './edit-part'
 
 // 숨은 연출(egg)의 껍데기(editor/eggs.ts, docs/plans/easter-eggs.md). 기본은 꺼짐이고, 켰다 끄면 3D 층·빛·HUD·GPU 메모리와
 // 내보내는 것(TTL·GeoJSON·모델)이 켜기 전과 같아야 한다. e2e 에서만 목록에 드는 시험용 egg(probe)로 껍데기를 잰다.
@@ -187,6 +187,31 @@ test('alive — TTL 의 feeds 전부가 계통 종류별 메시로 흐르고, �
 
   await oe(page, 'eggOff', 'alive')
   await settle(page)
+  expect(errors).toEqual([])
+})
+
+test('pass — 수용 기준선이 미달에서 통과로 바뀌는 순간 한 번만 틀고, 위반이 남은 층은 밝히지 않으며 끝난 뒤 0장이 된다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'pass')).toBe(true)
+  expect((await eggs(page)).inspect.pass.triggered).toBe(false)
+
+  await openDrawer(page)
+  await page.getByTestId('grade-banner').getByRole('button', { name: '등급 판정 보기' }).click()
+  const table = page.getByTestId('grade-table')
+  for (const g of [1, 2]) {
+    await table.getByLabel(`등급 ${g} 통과선(%)`).fill('80')
+    await table.getByLabel(`등급 ${g} 통과선(%)`).press('Tab')
+  }
+
+  await expect.poll(async () => (await eggs(page)).inspect.pass.triggered).toBe(true)
+  const info = (await eggs(page)).inspect.pass
+  // mep.ifc 의 1F 에는 위반이 남아 있으므로 거짓 축하로 층판을 밝히지 않는다.
+  expect(info.zeroStoreys).toEqual([])
+  await expect(page.getByTestId('egg-hud-pass')).toContainText('화면에서만')
+
+  await settle(page)
+  await oe(page, 'eggOff', 'pass')
   expect(errors).toEqual([])
 })
 

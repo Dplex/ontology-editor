@@ -481,3 +481,15 @@ TTL 에 `brick:feeds` 로 나가는 연결 전부가 원천 쪽부터 계통 종
 - **숫자.** `mep.ifc` 기준 `feeds` 수와 `graphFeeds` 수가 일치하며, 끄면 0장과 켜기 전 GPU 메모리로 돌아온다.
 - **하지 않은 것.** 덕트·배관 형상 안을 따라 흐르게 하기(그 경로는 TTL 에 없고 설비 중심끼리 잇는 선이 정본이다).
 - 되돌리려면 `src/eggs/alive.ts`·`src/eggs/alive.test.ts` 와 `src/eggs/registry.ts` 의 `alive` 줄, `e2e/eggs.spec.ts` 의 `alive` 시험을 뺀다.
+
+## 숨은 연출 S3 `pass` — 기준선 통과 (2026-10-24)
+
+켜 둔 동안 편집으로 완전성 검사 위반이 0 이 되거나 수용 기준선이 미달에서 통과로 바뀌는 순간 한 파일에 한 번만 축하 스캔을 튼다.
+
+- **데이터와 모양**(`src/eggs/pass.ts`). 위반 수와 기준선 상태를 새로 재지 않고 `signals.violations` · `signals.accepted` · `signals.storeyViolations`(층 칩 `storeyChips` 가 이미 나눠 센 값)로 받는다.
+  빛의 면이 맨 아래층 바닥에서 꼭대기까지 1.2초(`SWEEP_MS`)에 훑고 올라가며, 지나가는 층판은 **그 층의 위반이 0 일 때만** 잠깐 밝아진다(위반이 남은 층은 그대로 두어 거짓 축하를 막는다).
+- **규칙과 HUD.** HUD 에는 체크 표시가 0.3초에 그려지고 `완전성 검사 위반 0 · 화면에서만`(또는 `수용 기준선 통과 · 완전성 검사 위반 … · 화면에서만`)이 뜬다.
+  한 파일에 한 세션 동안 한 번뿐이라 되돌렸다가 다시 통과해도 다시 틀지 않고, 되돌리기로 통과가 풀리면 아무것도 하지 않는다. `still()` 이면 체크 표시만 보인다.
+- **숫자.** 켜 둔 대기 중에는 0장, 통과 순간 1.2초 스캔 뒤 다시 0장으로 돌아오며, 끄면 GPU 메모리가 켜기 전과 같다.
+- **하지 않은 것.** 색종이(컨페티)와 소리.
+- 되돌리려면 `src/eggs/pass.ts`·`src/eggs/pass.test.ts` 와 `src/eggs/registry.ts` 의 `pass` 줄, `src/eggs/types.ts`·`src/editor/eggs.ts` 의 `storeyViolations`, `e2e/eggs.spec.ts` 의 `pass` 시험을 뺀다.

@@ -13,6 +13,8 @@ export type SceneLayer = ViewerLayer
 export type EggSignals = {
   /** 완전성 검사 위반 수(잴 대상이 없어 건너뛴 규칙은 빼고). 리플레이 동안은 열기 전 값이다. */
   violations: Readonly<Ref<number>>
+  /** 층별 완전성 검사 위반 수(층 칩 storeyChips 가 이미 나눠 센 소속 없음 + 위반 합). */
+  storeyViolations: Readonly<Ref<ReadonlyMap<string, number>>>
   /** 수용 기준선(구축하기 게이트)을 넘었나. 아직 재지 않았으면 null. */
   accepted: Readonly<Ref<boolean | null>>
   flying: Readonly<Ref<boolean>>

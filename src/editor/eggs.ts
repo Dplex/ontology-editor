@@ -19,6 +19,7 @@ import { canvas, dark, model } from './core'
 import { isTextEntry } from './history'
 import { flying } from './keyboard'
 import { viewStorey } from './multi-view'
+import { storeyChips } from './panels'
 import { grades } from './publish'
 import { sceneVersion } from './redraw'
 import { viewer } from './scene'
@@ -37,6 +38,15 @@ let version = 0
 // 계산은 egg 가 읽을 때만 돈다(computed). egg 가 꺼져 있으면 아무도 안 읽는다.
 const signals: EggSignals = {
   violations: computed(() => checks.value.reduce((n, c) => n + (c.skipped ? 0 : c.failed.length), 0)),
+  storeyViolations: computed(() => {
+    const m = model.value
+    if (!m) return new Map<string, number>()
+    if (storeyChips.value.length) {
+      return new Map(storeyChips.value.map((c) => [c.id, c.noSpace + c.failed]))
+    }
+    const v = checks.value.reduce((n, c) => n + (c.skipped ? 0 : c.failed.length), 0)
+    return new Map(m.storeys.map((s) => [s.id, v]))
+  }),
   accepted: computed(() => (grades.value ? grades.value.gate : null)),
   flying: computed(() => flying.value),
   replaying: computed(() => replayOpen.value),
