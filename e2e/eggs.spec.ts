@@ -260,8 +260,116 @@ test('sun — 대지 좌표가 없는 파일은 서울 기준으로 그리고, �
   expect(errors).toEqual([])
 })
 
+test('refine — 0.25초 멈추면 8장을 모으고 0장이 되며, 시점을 움직이면 다시 모은다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'refine')).toBe(true)
+  await expect.poll(async () => (await eggs(page)).inspect.refine.completed).toBe(1)
+  const info = (await eggs(page)).inspect.refine
+  expect(info.samplesDrawn).toBe(8)
+  expect(info.sampling).toBe(false)
+  await settle(page)
+  const r0 = await viewer<number>(page, 'renders')
+  await page.waitForTimeout(500)
+  expect(await viewer<number>(page, 'renders')).toBe(r0)
+
+  // 휠로 한 칸 당기면 시점이 바뀐다. 멈춘 뒤 다시 한 벌을 모은다.
+  await page.locator('.viewport canvas[role=img]').hover()
+  await page.mouse.wheel(0, -120)
+  await expect.poll(async () => (await eggs(page)).inspect.refine.completed).toBeGreaterThanOrEqual(2)
+  await settle(page)
+  await oe(page, 'eggOff', 'refine')
+  expect(errors).toEqual([])
+})
+
+test('shadow — 켤 때 한 번 찍고 가만히 있으면 0장이며, 편집하면 0.5초 모아 다시 찍고 테마를 바꿔도 다시 찍지 않는다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'shadow')).toBe(true)
+  await expect.poll(async () => (await eggs(page)).inspect.shadow.captures).toBe(1)
+  expect((await eggs(page)).inspect.shadow.visible).toBe(true)
+  await settle(page)
+  const r0 = await viewer<number>(page, 'renders')
+  await page.waitForTimeout(500)
+  expect(await viewer<number>(page, 'renders')).toBe(r0)
+
+  await page.locator('.appbar button.theme').click()
+  await settle(page)
+  expect((await eggs(page)).inspect.shadow.captures).toBe(1)
+
+  await page.keyboard.press('e')
+  await pickEquipment(page, 'AHU-1')
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect.poll(async () => (await eggs(page)).inspect.shadow.captures).toBe(2)
+  await settle(page)
+  await oe(page, 'eggOff', 'shadow')
+  expect(errors).toEqual([])
+})
+
+test('rise — 켜면 층이 내려앉고 끝나면 0장이며, 새 파일을 열면 다시 튼다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'rise')).toBe(true)
+  await expect.poll(async () => (await eggs(page)).inspect.rise.running).toBe(false)
+  const info = (await eggs(page)).inspect.rise
+  expect(info.runs).toBe(1)
+  // 장 수는 기계 사정이다(e2e 는 CPU 로 그려서 병렬로 돌면 0.42초에 두세 장). 돌았다는 것만 본다.
+  expect(info.frames).toBeGreaterThan(0)
+  expect(info.patched).toBeGreaterThan(0)
+  await settle(page)
+  const r0 = await viewer<number>(page, 'renders')
+  await page.waitForTimeout(500)
+  expect(await viewer<number>(page, 'renders')).toBe(r0)
+
+  // 같은 탭에서 다른 파일을 연다. 모델 객체가 바뀌니 한 번 더 튼다.
+  await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
+  await expect.poll(async () => (await eggs(page)).inspect.rise?.runs).toBe(2)
+  await oe(page, 'eggOff', 'rise')
+  await settle(page)
+  expect(errors).toEqual([])
+})
+
+test('wipe — 테마 단추에서 원이 퍼지며 테마가 바뀌고, 끄면 붙인 규칙이 사라진다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  const theme = () => page.evaluate(() => document.documentElement.getAttribute('data-theme'))
+  const before = await theme()
+  expect(await oe(page, 'eggOn', 'wipe')).toBe(true)
+  await expect(page.getByTestId('egg-wipe-style')).toHaveCount(1)
+  await page.locator('.appbar button.theme').click()
+  await expect.poll(theme).not.toBe(before)
+  await expect.poll(async () => (await eggs(page)).inspect.wipe.running).toBe(false)
+  expect((await eggs(page)).inspect.wipe.transitions).toBe(1)
+  // 한 번 더 누르면 돌아온다.
+  await page.locator('.appbar button.theme').click()
+  await expect.poll(theme).toBe(before)
+  await expect.poll(async () => (await eggs(page)).inspect.wipe.transitions).toBe(2)
+  await expect.poll(async () => (await eggs(page)).inspect.wipe.running).toBe(false)
+  await oe(page, 'eggOff', 'wipe')
+  await expect(page.getByTestId('egg-wipe-style')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
 test.describe('움직임을 끈 사람', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } })
+  test('rise 는 틀지 않고 wipe 는 전환 없이 테마만 바꾼다', async ({ page }) => {
+    const errors = await open(page)
+    await settle(page)
+    expect(await oe(page, 'eggOn', 'rise')).toBe(true)
+    expect(await oe(page, 'eggOn', 'wipe')).toBe(true)
+    await settle(page)
+    expect((await eggs(page)).inspect.rise.runs).toBe(0)
+    const theme = () => page.evaluate(() => document.documentElement.getAttribute('data-theme'))
+    const before = await theme()
+    await page.locator('.appbar button.theme').click()
+    await expect.poll(theme).not.toBe(before)
+    expect((await eggs(page)).inspect.wipe.transitions).toBe(0)
+    await page.locator('.appbar button.theme').click()
+    await expect.poll(theme).toBe(before)
+    expect(errors).toEqual([])
+  })
+
   test('probe 를 켜도 얹을 때 한 장만 그리고 0장이다', async ({ page }) => {
     const errors = await open(page)
     await settle(page)

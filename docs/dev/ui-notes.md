@@ -522,3 +522,41 @@ TTL 에 `brick:feeds` 로 나가는 연결 전부가 원천 쪽부터 계통 종
 - **숫자.** `renderer.shadowMap.autoUpdate = false` 로 두고 해 자리나 모델이 바뀔 때만 `shadowMap.needsUpdate = true` 를 걸어, 시점을 돌려도 그림자 맵을 다시 그리지 않고 가만히 있을 때는 0장이다. 끄면 `sunLight.shadow.map` 과 하늘·바닥·화살표 형상·재질을 모두 `dispose` 하고 장면 메시의 `castShadow`·`receiveShadow` 를 되돌려 `renderer.info.memory` 가 켜기 전 수로 돌아온다.
 - **하지 않은 것.** 사내망 밖의 HDR 하늘 텍스처 내려받기(`Sky` 셰이더만 쓴다), 회전할 때마다 그림자 맵 다시 그리기.
 - 되돌리려면 `src/eggs/sun.ts`·`src/eggs/sun.test.ts` 와 `src/eggs/registry.ts` 의 `sun` 줄, `src/lib/model.ts`·`src/lib/ifc/import.ts`·`src/lib/merge.ts` 의 `site` 추출, `e2e/eggs.spec.ts` 의 `sun` 시험을 뺀다.
+
+## 숨은 연출 A `refine`·`shadow`·`rise`·`wipe` — 다듬기 넷 (2026-10-24)
+
+발표 뒤 화면을 보고 기본으로 올릴지 고를 것들이다(`docs/plans/easter-eggs.md` 4장 A). 넷 다 HUD 가 없다. 데이터 한 줄이 아니라
+보이는 품질을 다듬는 것이라 셀 수가 없고, 끈 뒤 화면이 켜기 전과 같은지만 잰다.
+
+**숫자**(2026-10-24, M3 Max · ANGLE Metal, 1440×900, 건축+HVAC 를 합쳐 연 것. 성수는 미측정). 회전 중 프레임 간격 95% 는 켜기 전이 Duplex 20~24ms · 병원 22ms 다.
+
+| egg | 켜는 시간 | 회전 중 95% (Duplex · 병원) | 가만히 있을 때 | 끈 뒤 GPU 메모리 |
+|---|---|---|---|---|
+| `refine` | 5~10ms | 21 · 20ms | 멈춘 뒤 8장, 그다음 0장 | 같다 |
+| `shadow` | 5~13ms (찍기 8ms) | 20 · 20ms | 0장 | 같다 |
+| `rise` | 7~11ms | 20 · 21ms | 내려앉는 동안(4층 0.66초, 41장) 뒤 0장 | 같다 |
+| `wipe` | 9~10ms | 19 · 21ms | 0장 | 같다 |
+
+- **`refine` 멈추면 차오르는 화질**(`src/eggs/refine.ts`). 시점이 0.25초 멈추면 다음 8장 동안 카메라를 서브픽셀만큼 흔들어(view offset, Halton 2·3) 그린 화면을
+  텍스처로 떠서(`copyFramebufferToTexture`) HalfFloat 누적 판에 1/(n+1) 로 섞고 다시 깐다. 본 장면을 한 번 더 그리지 않는다. 외곽선은 그 뒤에 그려져 늘 또렷하다.
+  병원을 비스듬히 본 스샷에서 초록 배관 모서리와 가는 선의 계단이 눈에 띄게 줄었다(1배율 화면).
+  **시점이 움직였는지는 1e-4 의 허용 오차로 본다.** 회전을 놓은 뒤에도 OrbitControls 의 감쇠가 뷰어가 다시 그리는 문턱보다 작은 양(1e-5)으로
+  카메라를 계속 민다. 정확히 같음으로 보면 Duplex·병원에서 흔든 둘째 장마다 끊겨 한 번도 8장을 채우지 못했다.
+- **`shadow` 바닥에 앉는 그림자**(`src/eggs/shadow.ts`). drei ContactShadows 수법이다. 바닥에 놓은 정사영 카메라가 위를 보고 바닥에서 4m 까지의 면을
+  깊이로 512px 에 찍은 뒤 가로·세로 흐림을 두 번 건다. 그리는 비용은 판 하나다. 켤 때 한 번, 편집 뒤에는 0.5초를 모았다가 한 번 찍고 회전·테마로는 찍지 않는다.
+  물리존 바닥판처럼 반쯤 비치는 판도 찍는다. 벽·배관만 찍으면 얇아서 흐림에 묽어져 최대 짙기가 5/255 였다. 판은 덮임을 smoothstep 으로 올려 칠해서
+  발밑은 꽉 차고 건물 밖으로만 번진다. 흐림 폭은 미터(1.2m)로 정한다. 픽셀로 정하면 Duplex(13m)에서 벽 밖으로 0.25m 만 번져 벽에 가렸다.
+  다크 테마에서는 바탕이 어두워 거의 안 보인다(눈으로 본 것: 병원 라이트 · Duplex 다크).
+- **`rise` 층이 올라앉는 오프닝**(`src/eggs/rise.ts`). 재질의 꼭짓점 셰이더에 "세계 y 가 속한 층만큼 위로" 를 꽂아 맨 아래 층부터 0.08초 간격으로 0.4m 에서
+  내려앉게 한다. 형상·자리·고르기 상자는 처음부터 끝 자리다(`replay-viewer.ts` 의 층 들기와 같은 관용구). 켤 때 한 번, 켜 둔 동안 새 파일을 열 때마다 한 번 튼다.
+  꽂은 것은 다 내려앉아도 끌 때까지 둔다. 빼면 그 자리에서 셰이더를 다시 지어 끝에 멈칫한다. 시계는 꽂은 첫 장 다음부터 간다 — 헤드리스(CPU 렌더러)에서는
+  셰이더를 짓는 첫 장이 0.4초를 넘어 애니메이션을 다 먹었다. 주소(`?egg=rise`)로 켜면 3D 첫 장 뒤에 켜지므로 그 한 장은 내려앉기 전 자리로 보인다.
+- **`wipe` 테마 원형 번짐**(`src/eggs/wipe.ts`). egg 는 테마를 바꾸는 함수를 받지 않는다(G4). 그래서 위쪽 막대의 테마 단추 click 을 capture 단계에서 받아
+  `document.startViewTransition` 으로 감싸고, 그 안에서 같은 단추를 한 번 더 눌러 앱의 `toggleTheme` 이 바꾸게 한다. 원은 `clip-path: circle()` 로 0.45초에 퍼진다.
+  전환은 새 테마의 3D 가 한 장 그려진 뒤(늦어도 0.3초) 끝낸다. 전환 기본 애니메이션을 끄는 규칙은 켜 있는 동안만 `<style>` 하나로 붙인다.
+  움직임 끄기거나 View Transition 이 없으면 가로채지 않는다. 원이 퍼지는 모양과 3D 칸 번쩍임은 눈으로 보지 않았다.
+- **dev 서버의 새로고침.** egg 가 켤 때 처음 쓰는 three 부록(`Sky`·`Pass`·흐림 셰이더)을 Vite 가 그때 발견하면 의존성을 다시 묶고 페이지를 새로 불러온다.
+  `shadow` 를 처음 켠 순간 연 파일이 사라졌다. `vite.config.ts` 의 `optimizeDeps.include` 에 올려 둔다. 빌드본(55)에는 없는 일이다.
+- **하지 않은 것.** `refine` 의 2단계(누적 뒤 GTAO 한 장), `shadow` 를 다크에서 밝게 칠하기, 주소로 켠 `rise` 의 첫 장 숨기기(껍데기가 3D 첫 장 뒤에 켜는 약속을 바꿔야 한다).
+- 되돌리려면 `src/eggs/{refine,shadow,rise,wipe}.ts`·`src/eggs/a-eggs.test.ts`, `src/eggs/registry.ts` 의 네 줄, `e2e/eggs.spec.ts` 의 네 시험과
+  "움직임을 끈 사람" 의 `rise`·`wipe` 시험, `vite.config.ts` 의 `optimizeDeps.include` 에서 `Sky`·`Pass`·흐림 셰이더 네 줄을 뺀다.

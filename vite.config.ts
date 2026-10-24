@@ -51,8 +51,18 @@ export default defineConfig(({ mode }) => ({
   // 임포트 워커가 web-ifc 를 쓴다. dev 서버는 워커의 의존성을 워커가 처음 뜰 때에야 발견하고, 그 자리에서
   // 최적화하느라 페이지를 새로 불러온다. 그러면 막 연 파일의 결과가 사라진다(새로 띄운 서버의 첫 e2e 가
   // 전부 실패했다). 미리 최적화해 둔다. 3D 내보내기 워커의 GLTFExporter 도 같다 — 내보내기를 처음 누른 순간
-  // 새로 불러와서 같이 돌던 e2e 15개가 시간 초과로 떨어졌다.
-  optimizeDeps: { include: ['web-ifc', 'three/addons/exporters/GLTFExporter.js'] },
+  // 새로 불러와서 같이 돌던 e2e 15개가 시간 초과로 떨어졌다. 숨은 연출(src/eggs/)이 켤 때에야 내려받는 three 부록도 같다 —
+  // `shadow` 를 처음 켠 순간 페이지가 새로 불러와져 연 파일이 사라졌다.
+  optimizeDeps: {
+    include: [
+      'web-ifc',
+      'three/addons/exporters/GLTFExporter.js',
+      'three/addons/objects/Sky.js',
+      'three/addons/postprocessing/Pass.js',
+      'three/addons/shaders/HorizontalBlurShader.js',
+      'three/addons/shaders/VerticalBlurShader.js',
+    ],
+  },
 
   // 자산을 상대 경로로 참조한다. 이 번들은 루트가 아닌 하위 경로에서도 서빙될 수 있고,
   // 절대 경로(`/assets/...`)로 빌드하면 그때 자산이 전부 404 가 되어 화면이 흰 채로 뜬다.
