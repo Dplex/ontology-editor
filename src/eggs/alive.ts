@@ -113,12 +113,17 @@ export function buildAliveScene(model: Readonly<Model>, dark: boolean): BuiltAli
     }
   }
 
-  // 자리가 없는 엔티티도 빠지지 않게 이웃·층 근처에 놓는다.
+  // 자리가 없는 엔티티(미배치 설비, BIM 과 안 이어진 IDF 설비 등)도 빠지지 않게 소속 방·층 둘레에 놓는다(xray 와 같은 방식).
+  // 원점에 두면 건물 밖 엉뚱한 곳으로 빛이 흐른다.
+  const entityByKey = new Map(reading.entities.map((e) => [e.key, e] as const))
+  const anyStorey = model.storeys[0] ? posByKey.get(model.storeys[0].id) : undefined
   const ensurePos = (key: string, idx: number): Vector3 => {
     const had = posByKey.get(key)
     if (had) return had
+    const loc = entityByKey.get(key)?.locations[0]
+    const base = (loc ? posByKey.get(loc) : undefined) ?? anyStorey ?? new Vector3()
     const angle = idx * 2.399963229728653
-    const v = new Vector3(Math.cos(angle) * 0.5, 0.3 + (idx % 5) * 0.1, Math.sin(angle) * 0.5)
+    const v = new Vector3(base.x + Math.cos(angle) * 0.5, base.y + 0.3 + (idx % 5) * 0.1, base.z + Math.sin(angle) * 0.5)
     posByKey.set(key, v)
     return v
   }
@@ -300,9 +305,11 @@ export function enable(ctx: EggContext): EggHandle {
       stopThemeWatch()
     },
     inspect() {
-      rebuild()
+      // 여기서 다시 짓지 않는다. 지으면 편집을 따라가지 못하는 버그를 e2e 가 못 본다.
       return {
         ...(built?.stats ?? { feeds: 0, graphFeeds: 0, unconfirmed: 0, groups: 0 }),
+        builtVersion,
+        modelVersion: ctx.modelVersion(),
         frames,
         hud: hud.textContent,
       }

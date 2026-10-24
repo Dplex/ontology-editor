@@ -450,6 +450,8 @@ Unity 판과 나란히 보일 자리를 앞두고 3D 연출을 더하되, PRD �
   (바탕 빛을 잠시 바꾸고 다 거두면 처음 세기로). 층이 없거나 가만히 있으면 그리는 장수가 전과 같다.
 - **끄면 껍데기가 거둔다.** egg 가 `ctx` 로 얹은 층·빛·HUD·넓게 보기는 egg 의 `off()` 뒤에 껍데기가 모두 걷는다. 리플레이를 열면 그 자리에서(sync)
   켠 egg 를 쉬게 하고 닫으면 되살린다. 파일을 닫아도 끈다.
+- **`modelVersion` 은 ref 다.** egg 가 `watch(() => ctx.modelVersion())` 로 편집을 따라간다. 평범한 변수였을 때는 그 watch 가 한 번도 울리지 않아
+  `alive` 가 계통을 확정해도 그대로였다. e2e 의 `inspect` 가 다시 지어 주는 바람에 가려져 있었다(2026-10-24 리뷰). 그래서 `inspect` 는 짓지 않고 `builtVersion` 만 내놓는다.
 - **e2e**(`e2e/eggs.spec.ts`). e2e 에서만 목록에 드는 시험용 `probe` 로 잰다. 목록의 egg 를 하나씩 켰다 끄면 TTL·GeoJSON·모델 문자열(`__oe.exportSnapshot()`),
   `__viewer.layers()`·`lights()`·`memory()`, HUD 가 켜기 전과 같다. probe 가 형상을 안 버리거나 모델을 고치게 바꿔 보면 이 시험이 떨어진다(2026-10-24 확인).
 - 되돌리려면 `src/editor/index.ts` 의 `setupEggs()` 와 `src/editor/eggs.ts`·`src/eggs/`·`e2e/eggs.spec.ts` 를 지우고, viewer.ts 의
@@ -465,6 +467,7 @@ Unity 판과 나란히 보일 자리를 앞두고 3D 연출을 더하되, PRD �
 - **어두운 막과 손짓.** 건물 재질을 바꾸지 않고 `afterRender` 에서 화면 전체 사각형(바탕 85%)을 먼저 그린 뒤 같은 카메라로 그래프 장면을 덧그린다.
   `~` 판이나 콘솔로 켜면 0.25초에 서고, 3D 위에서 `Space` 를 누르고 있는 동안 흐르며 떼면 0.2초에 물러난다(끌기·그리기 도구가 도는 동안은 가로채지 않는다).
   HUD 두 줄에 `받는 쪽이 읽는 관계 · feeds … · hasLocation … · hasPart … · 화면에서만` 과 `덕트·배관(fso:) …개는 받는 쪽이 읽지 않아 그리지 않았습니다` 를 적는다.
+  `fso:` 가 아닌데 받는 쪽이 읽지 않는 것이 있으면 따로 센다(`그 밖에 …개도 같은 이유로 뺐습니다`). 섞어 세면 세는 것의 이름이 틀린다.
 - **숫자.** `mep.ifc` 기준 그래프 짓기 약 2~5ms(`feeds` · `hasLocation` · `hasPart` 수와 그래프 선 수 일치), 가만히 있을 때 0장, 끄면 `renderer.info.memory` 가 켜기 전으로 돌아온다.
 - **하지 않은 것.** 힘 기반 배치(실제 자리를 떠나면 건물 안의 그래프가 아니게 된다), 점마다 라벨 달기(성수 2만 개에서 겹친다).
 - 되돌리려면 `src/eggs/xray.ts`·`src/eggs/xray.test.ts` 와 `src/eggs/registry.ts` 의 `xray` 줄, `e2e/eggs.spec.ts` 의 `xray` 시험을 뺀다.
@@ -498,7 +501,23 @@ TTL 에 `brick:feeds` 로 나가는 연결 전부가 원천 쪽부터 계통 종
 
 `IfcSite` 의 대지 위도·경도와 `IfcGeometricRepresentationContext.TrueNorth` 를 읽어 그 대지의 해 자리와 그림자를 그리고, 날짜·시각 막대로 하루의 그림자 이동을 본다.
 
-- **데이터와 임포터**(`src/lib/ifc/import.ts` · `src/lib/model.ts` · `src/lib/merge.ts`). `IfcSite.RefLatitude`·`RefLongitude`(`IfcCompoundPlaneAngleMeasure`, 도·분·초·백만분의 일초)를 십진법 도로 바꾸고(`compoundAngleToDegrees`), `IfcGeometricRepresentationContext.TrueNorth` 의 평면 방향 비율을 단위 벡터로 읽어 `model.site` 에 담는다(편집 파일·TTL·GeoJSON·`model.facts` 는 그대로다). 가진 샘플 중 AC20·ifc4Mep·Duplex 건축·HVAC 은 `IfcSite.RefLatitude` 가 채워져 있고(`check-sample.test.ts`), 픽스처(`mep.ifc`·`two-rooms.ifc`)처럼 대지 좌표가 없는 파일은 서울시청(`37.5665, 126.9780`)과 `+y` 를 북으로 쓰며 HUD 에 `이 파일에는 대지 좌표가 없어 서울 기준으로 그렸습니다 · … · 화면에서만` 을 적는다.
+- **데이터와 임포터**(`src/lib/ifc/import.ts` · `src/lib/model.ts` · `src/lib/merge.ts`). `IfcSite.RefLatitude`·`RefLongitude`(`IfcCompoundPlaneAngleMeasure`, 도·분·초·백만분의 일초)를 십진법 도로 바꾸고(`compoundAngleToDegrees`), `IfcGeometricRepresentationContext.TrueNorth` 의 평면 방향 비율을 단위 벡터로 읽어 `model.site` 에 담는다(편집 파일·TTL·GeoJSON·`model.facts` 는 그대로다). 대지 좌표가 없는 파일은 서울시청(`37.5665, 126.9780`)과 `+y` 를 북으로 쓰며 HUD 에 `이 파일에는 대지 좌표가 없어 서울 기준으로 그렸습니다 · … · 화면에서만` 을 적는다. 진북이 없으면 HUD 에 `진북 없음(+y 로 그림)` 이다.
+- **가진 BIM 에 무엇이 있나**(2026-10-24 리뷰 때 잼, 성수는 미측정). 위경도는 공개 샘플 일곱 개 전부에 있다. 진북은 셋에만 쓸 만하다.
+
+  | 파일 | 위도·경도 | 진북 |
+  |---|---|---|
+  | AC20-FZK-Haus | 49.1004, 8.4365 | (0.766, 0.643) |
+  | ifc4Mep | 51.45, 5.4833 | (-0.448, 0.894) |
+  | Duplex 건축·MEP | 41.8744, -87.6394 | 없음 |
+  | Duplex HVAC | 41.8744, -87.6394 | 읽지 않음(Revit 2013) |
+  | 병원 건축 | 42.3584, -71.0598 | 없음 |
+  | 병원 HVAC | 42.2130, -71.0330 | 읽지 않음(Revit 2013) |
+  | 픽스처 `mep.ifc`·`two-rooms.ifc` | 없음 | (0, 1) |
+
+  Revit 2013 은 진북 (0, 1) 을 `IFCDIRECTION((2.,6.12303176911189E-17,1.))` 로 적는다. 앞 두 값을 쓰면 북이 +x 로 90° 돈다. 그래서 z 가 0 이 아닌 3차원 방향은
+  진북으로 읽지 않는다. 같은 건물인데 병원 건축과 HVAC 의 위도가 0.15° 다르다. 파일에 적힌 대로 두었다.
+- **BIM 요건 R7 은 그대로다.** `facts.siteLatLong` 은 main 의 식(`RefLatitude?.length`)을 그대로 둔다. 그 식은 web-ifc 가 위경도를 `{ value: [...] }` 로 싸서 주기 때문에
+  위 일곱 파일 전부에서 거짓이 되어 R7 에 `위경도만 있습니다.` 가 빠진다. 버그지만 기본 화면의 문구라 egg 에서 고치지 않았다(G2). main 에서 따로 고칠 일이다.
 - **해 자리와 그림자**(`src/eggs/sun.ts`). 외부 라이브러리 없이 NOAA 근사식으로 고도·방위를 계산한다(서울 위도에서 하루 최고 고도가 하지 75.9° · 동지 29.0° ±0.5°). 하늘은 Three.js `Sky` 셰이더이고, 세계에 고정한 `DirectionalLight`(2048 그림자 맵)와 바닥 그림자 판(`ShadowMaterial`), 바닥 진북 화살표(`N`)를 놓는다. 카메라 주광은 `ctx.lights({ hemi: 0.55, sun: 0.2 })` 로 낮추고 끄면 원래 세기로 돌아온다.
 - **숫자.** `renderer.shadowMap.autoUpdate = false` 로 두고 해 자리나 모델이 바뀔 때만 `shadowMap.needsUpdate = true` 를 걸어, 시점을 돌려도 그림자 맵을 다시 그리지 않고 가만히 있을 때는 0장이다. 끄면 `sunLight.shadow.map` 과 하늘·바닥·화살표 형상·재질을 모두 `dispose` 하고 장면 메시의 `castShadow`·`receiveShadow` 를 되돌려 `renderer.info.memory` 가 켜기 전 수로 돌아온다.
 - **하지 않은 것.** 사내망 밖의 HDR 하늘 텍스처 내려받기(`Sky` 셰이더만 쓴다), 회전할 때마다 그림자 맵 다시 그리기.

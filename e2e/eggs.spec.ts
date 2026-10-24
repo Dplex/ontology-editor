@@ -142,7 +142,8 @@ test('xray — 꺼져 있을 때 Space 는 아무 일도 하지 않고, 켜면 T
   const errors = await open(page)
   await settle(page)
   const snap0 = await oe(page, 'exportSnapshot')
-  await page.locator('.viewport canvas').hover()
+  // 3D 칸에는 방향 큐브의 canvas 도 있다. 본 3D 만 집는다.
+  await page.locator('.viewport canvas[role=img]').hover()
   await page.keyboard.down('Space')
   await page.waitForTimeout(150)
   await page.keyboard.up('Space')
@@ -184,6 +185,16 @@ test('alive — TTL 의 feeds 전부가 계통 종류별 메시로 흐르고, �
   expect(info.frames).toBeGreaterThan(5)
   await expect(page.getByTestId('egg-hud-alive')).toContainText(`살아 있는 건물 · 흐르는 feeds ${info.feeds.toLocaleString()}`)
   await expect(page.getByTestId('egg-hud-alive')).toContainText('화면에서만')
+
+  // 편집하면 그 자리에서 다시 짓는다(modelVersion 을 watch 로 받는다). inspect 는 짓지 않으니 여기서 따라온 것이 egg 의 몫이다.
+  await page.keyboard.press('e')
+  await pickEquipment(page, 'AHU-1')
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect.poll(async () => (await eggs(page)).inspect.alive.modelVersion).toBeGreaterThan(info.modelVersion)
+  await expect.poll(async () => {
+    const a = (await eggs(page)).inspect.alive
+    return a.builtVersion === a.modelVersion
+  }).toBe(true)
 
   await oe(page, 'eggOff', 'alive')
   await settle(page)
@@ -229,9 +240,9 @@ test('sun — 대지 좌표가 없는 파일은 서울 기준으로 그리고, �
   await expect(page.getByTestId('egg-hud-sun')).toContainText('화면에서만')
 
   // 시각 막대를 오전 9시(540분)로 옮기면 고도·방위가 바뀌고 그림자 맵이 한 번만 다시 그려진다.
+  // fill 이 input 을 이미 한 번 보낸다. 한 번 더 보내면 그 사이에 한 장이 그려졌는지에 따라 2 도 3 도 된다.
   const timeSlider = page.getByTestId('egg-sun-time')
   await timeSlider.fill('540')
-  await timeSlider.dispatchEvent('input')
   await settle(page)
 
   const info1 = (await eggs(page)).inspect.sun

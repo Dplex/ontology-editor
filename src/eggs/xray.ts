@@ -43,7 +43,10 @@ export type XrayStats = {
   feeds: number
   hasLocation: number
   hasPart: number
+  /** 받는 쪽이 읽지 않는 덕트·배관(fso:) 수. */
   unread: number
+  /** 받는 쪽이 읽지 않는 것 가운데 fso: 가 아닌 것의 수. */
+  unreadOther: number
   graph: {
     points: number
     feeds: number
@@ -195,10 +198,12 @@ export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGrap
   }
 
   // 아직 자리가 없는 엔티티(외곽선 없는 방, 미배치 설비, BIM 과 안 이어진 IDF 설비 등)는 소속 층·건물 기둥 둘레에 놓는다.
+  // 엔티티는 Map 으로 찾는다. 배열을 훑으면 성수처럼 자리 없는 설비가 많은 파일에서 엔티티 수의 제곱이 된다.
+  const entityByKey = new Map(reading.entities.map((e) => [e.key, e] as const))
   const ensurePos = (key: string, idx: number): Vector3 => {
     const had = posByKey.get(key)
     if (had) return had
-    const ent = reading.entities.find((e) => e.key === key)
+    const ent = entityByKey.get(key)
     const base = (ent?.locations[0] ? posByKey.get(ent.locations[0]) : null) ?? storeyNodes[0] ?? buildingTop
     const angle = idx * 2.399963229728653
     const r = 0.5 + (idx % 5) * 0.15
@@ -337,14 +342,16 @@ export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGrap
     disposables.push(feedsMesh.geometry, feedsMesh.material as ShaderMaterial)
   }
 
-  const unreadCount = reading.unread.filter((u) => u.cls.startsWith('fso:')).length || reading.unread.length
+  // 덕트·배관(fso:)과 그 밖에 받는 쪽이 읽지 않는 것을 따로 센다. 섞어 세면 HUD 가 세는 것의 이름을 틀린다.
+  const unreadConduits = reading.unread.filter((u) => u.cls.startsWith('fso:')).length
   const buildMs = Math.round((performance.now() - t0) * 10) / 10
 
   const stats: XrayStats = {
     feeds: feedsCount,
     hasLocation: locCount,
     hasPart: partCount,
-    unread: unreadCount,
+    unread: unreadConduits,
+    unreadOther: reading.unread.length - unreadConduits,
     graph: {
       points: pointPositions.length / 3,
       feeds: (feedsMesh?.userData.flowSegments as number | undefined) ?? 0,
@@ -416,10 +423,13 @@ export function enable(ctx: EggContext): EggHandle {
   let alpha = ctx.still() ? 1 : 0
   let fadeFrom = alpha
   let fadeAt = performance.now()
+  /** 움직임 끄기면 alpha 가 바로 바뀌므로, 그 한 장을 그리라고 step 에 알린다. */
+  let needsFrame = false
 
   function updateHud(stats: XrayStats) {
     line1.textContent = `받는 쪽이 읽는 관계 · feeds ${stats.feeds.toLocaleString()} · hasLocation ${stats.hasLocation.toLocaleString()} · hasPart ${stats.hasPart.toLocaleString()} · 화면에서만`
-    line2.textContent = `덕트·배관(fso:) ${stats.unread.toLocaleString()}개는 받는 쪽이 읽지 않아 그리지 않았습니다`
+    const other = stats.unreadOther ? ` · 그 밖에 ${stats.unreadOther.toLocaleString()}개도 같은 이유로 뺐습니다` : ''
+    line2.textContent = `덕트·배관(fso:) ${stats.unread.toLocaleString()}개는 받는 쪽이 읽지 않아 그리지 않았습니다${other}`
   }
 
   function ensureGraph(): BuiltGraph | null {
@@ -445,6 +455,7 @@ export function enable(ctx: EggContext): EggHandle {
       alpha = to
       fadeFrom = to
       hud.style.opacity = String(to)
+      needsFrame = true
       return
     }
     fadeFrom = alpha
@@ -513,7 +524,9 @@ export function enable(ctx: EggContext): EggHandle {
       if (ctx.still()) {
         alpha = targetAlpha
         hud.style.opacity = String(alpha)
-        return false
+        const draw = needsFrame
+        needsFrame = false
+        return draw
       }
       let dirty = false
       if (alpha !== targetAlpha) {
@@ -568,9 +581,11 @@ export function enable(ctx: EggContext): EggHandle {
       window.removeEventListener('blur', onBlur)
     },
     inspect() {
-      const g = ensureGraph()
+      // 여기서 짓지 않는다. 편집을 따라 다시 짓는지는 builtVersion 으로 본다.
       return {
-        ...(g?.stats ?? { feeds: 0, hasLocation: 0, hasPart: 0, unread: 0, graph: { points: 0, feeds: 0, hasLocation: 0, hasPart: 0 }, buildMs: 0 }),
+        ...(built?.stats ?? { feeds: 0, hasLocation: 0, hasPart: 0, unread: 0, unreadOther: 0, graph: { points: 0, feeds: 0, hasLocation: 0, hasPart: 0 }, buildMs: 0 }),
+        builtVersion,
+        modelVersion: ctx.modelVersion(),
         holding,
         alpha: Number(alpha.toFixed(3)),
         hud: hud.textContent,

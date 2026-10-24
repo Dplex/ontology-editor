@@ -26,7 +26,7 @@ export type EggSignals = {
 export type EggContext = {
   /** 지금 모델. 읽기만 한다. */
   model(): Readonly<Model> | null
-  /** 모델이 바뀌거나(새 파일·편집) 3D 를 다시 그리면 오른다. 지어 둔 것을 버릴 때를 이것으로 안다. */
+  /** 모델이 바뀌거나(새 파일·편집) 3D 를 다시 그리면 오른다. 지어 둔 것을 버릴 때를 이것으로 안다. 반응형이라 `watch` 로 받는다. */
   modelVersion(): number
   /** 3D 에 층을 얹는다. 돌려준 함수로 일찍 뗄 수 있고, 안 떼도 egg 를 끄면 껍데기가 뗀다. */
   addLayer(layer: SceneLayer): () => void

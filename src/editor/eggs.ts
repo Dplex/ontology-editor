@@ -33,7 +33,8 @@ const loading = new Set<string>()
 export const eggsOn = ref<string[]>([])
 /** 리플레이 동안 쉬게 한 egg. 닫으면 되살린다. */
 let resting: string[] = []
-let version = 0
+/** egg 의 watch 가 받아야 하니 ref 다. 평범한 변수면 `watch(() => ctx.modelVersion())` 가 한 번도 울리지 않는다. */
+const version = ref(0)
 
 // 계산은 egg 가 읽을 때만 돈다(computed). egg 가 꺼져 있으면 아무도 안 읽는다.
 const signals: EggSignals = {
@@ -73,7 +74,7 @@ function contextFor(id: string, run: Running): EggContext {
   let wideByEgg = false
   return {
     model: () => model.value,
-    modelVersion: () => version,
+    modelVersion: () => version.value,
     addLayer(layer) {
       const off = v.addLayer(layer)
       run.cleanup.push(off)
@@ -267,7 +268,7 @@ export function setupEggs() {
   })
 
   // egg 가 지어 둔 것을 버릴 때. 편집은 모델을 그 자리에서 고치고 triggerRef 로 알린다(shallowRef 라 watch 가 받는다).
-  watch([model, sceneVersion], () => version++, { flush: 'sync' })
+  watch([model, sceneVersion], () => version.value++, { flush: 'sync' })
   // 파일을 닫으면 끈다. 3D 칸이 없는데 HUD·층이 남는다.
   watch(model, (m) => {
     if (m) return

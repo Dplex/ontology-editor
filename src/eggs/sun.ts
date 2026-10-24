@@ -428,7 +428,7 @@ export function enable(ctx: EggContext): EggHandle {
 
   function updateHudText() {
     const northAngle = Math.round(((Math.atan2(site.trueNorth[0], site.trueNorth[1]) * RAD_TO_DEG) + 360) % 360)
-    const northText = northAngle === 0 ? '+y(0°)' : `${northAngle}°`
+    const northText = !site.hasTrueNorth ? '없음(+y 로 그림)' : northAngle === 0 ? '+y(0°)' : `${northAngle}°`
     const altText = currentSolar.altitudeDeg.toFixed(1)
     const azText = Math.round(currentSolar.azimuthDeg)
     const coordNote = site.hasSiteCoords
@@ -492,6 +492,8 @@ export function enable(ctx: EggContext): EggHandle {
     scene.traverse((obj) => {
       if (!(obj instanceof Mesh)) return
       if (obj === sky || obj === groundPlane || northArrow.children.includes(obj)) return
+      // 반투명한 것(다른 egg 의 흐르는 빛·층판, 강조 막)은 건물이 아니다. 그림자를 드리우면 바닥에 선 그림자가 생긴다.
+      if (([] as { transparent?: boolean }[]).concat(obj.material).some((m) => m?.transparent)) return
       if (!savedMeshes.has(obj)) {
         savedMeshes.set(obj, { cast: obj.castShadow, receive: obj.receiveShadow })
       }
@@ -514,7 +516,7 @@ export function enable(ctx: EggContext): EggHandle {
       needsFrame = false
       return true
     },
-    afterRender({ renderer, scene, camera }) {
+    afterRender({ renderer, scene }) {
       if (!hookedRenderer) {
         hookedRenderer = renderer
         prevShadowEnabled = renderer.shadowMap.enabled
@@ -522,12 +524,13 @@ export function enable(ctx: EggContext): EggHandle {
         renderer.shadowMap.enabled = true
         renderer.shadowMap.autoUpdate = false
       }
+      // 그림자 맵은 다음 장에서 다시 그린다. 여기서 장면을 한 번 더 그리면 먼저 덧그린 다른 egg(xray 의 막)가 지워진다.
       if (shadowDirty) {
         tagSceneShadowMeshes(scene)
         renderer.shadowMap.needsUpdate = true
         shadowDirty = false
         shadowUpdates++
-        renderer.render(scene, camera)
+        needsFrame = true
       }
     },
     dispose() {

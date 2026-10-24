@@ -1741,7 +1741,9 @@ function read(
       const ctx = r.tryLine(id)
       const tnId = ref(ctx?.TrueNorth)
       const dir = tnId !== null ? numbers(r.tryLine(tnId)?.DirectionRatios) : null
-      if (dir && dir.length >= 2) {
+      // 진북은 수평이어야 한다. Revit 2013 은 (0, 1) 을 `(2., 6.1E-17, 1.)` 로 적는다(Duplex·병원 HVAC). 앞 두 값을 그대로 쓰면
+      // 북이 +x 로 90° 돌아가므로, z 가 0 이 아닌 3차원 방향은 읽지 않고 없는 것으로 둔다.
+      if (dir && dir.length >= 2 && Math.abs(dir[2] ?? 0) < 1e-9) {
         const len = Math.hypot(dir[0], dir[1])
         if (len > 1e-9) {
           trueNorth = [Math.round((dir[0] / len) * 1e6) / 1e6, Math.round((dir[1] / len) * 1e6) / 1e6]
@@ -1772,7 +1774,7 @@ function read(
         lengthUnit: unitFound,
         // IfcMapConversion 은 IFC4 부터 있다. IFC2x3 에서는 늘 0 이다.
         mapConversion: r.ids(WebIFC.IFCMAPCONVERSION).length > 0,
-        siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (numbers(r.line(id)?.RefLatitude)?.length ?? 0) > 0),
+        siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (r.line(id)?.RefLatitude?.length ?? 0) > 0),
         ...(proxies.total ? { proxies: (({ context, ...rest }) => (context ? { ...rest, context } : rest))(proxies) } : {}),
       },
     }

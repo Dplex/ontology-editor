@@ -103,10 +103,16 @@ describe('S4 해가 지나가는 건물(sun)', () => {
         "#11= IFCSITE('0MEP$Site$0000000000',$,'Site',$,$,#10,$,$,.ELEMENT.,(37,33,59,400000),(126,58,40,800000),$,$,$);",
       )
     const parsed = importIfc(api, new TextEncoder().encode(withCoordsText))
-    expect(parsed.facts?.siteLatLong).toBe(true)
+    // facts.siteLatLong(BIM 요건 R7 의 문구)은 egg 가 바꾸지 않는다. 기본 화면이라서다(G2).
+    expect(parsed.facts).toEqual(mepModel.facts)
     expect(parsed.site?.latitude).toBeCloseTo(37.5665, 4)
     expect(parsed.site?.longitude).toBeCloseTo(126.978, 4)
     expect(parsed.site?.trueNorth).toEqual([0.6, 0.8])
+
+    // Revit 2013 이 (0, 1) 을 적는 꼴 `(2., 6.1E-17, 1.)` 은 수평이 아니라 진북으로 읽지 않는다. 읽으면 북이 +x 로 돈다.
+    const revit2013 = importIfc(api, new TextEncoder().encode(withCoordsText.replace('#7= IFCDIRECTION((0.6,0.8));', '#7= IFCDIRECTION((2.,6.12303176911189E-17,1.));')))
+    expect(revit2013.site?.trueNorth).toBeUndefined()
+    expect(revit2013.site?.latitude).toBeCloseTo(37.5665, 4)
 
     // 두 모델을 합쳐도 대지 좌표와 진북 방향이 보존된다.
     const { model: merged } = mergeModels(mepModel, parsed)
