@@ -48,3 +48,15 @@ describe('A 등급 egg 의 계산', () => {
     expect(coverRadius(1400, 20, 1440, 900)).toBeCloseTo(Math.hypot(1400, 880))
   })
 })
+
+describe('B 등급 egg 의 계산', () => {
+  it('banner — 층 수만큼 줄을 쌓고 층·물리존·기기 수를 적으며 마지막 줄은 ~ 안내다', async () => {
+    const { bannerLines } = await import('./banner')
+    const storey = (n: number) => ({ id: `s${n}`, elevation: n * 3, spaces: [{}, {}], equipment: [{ role: 'terminal' }, { role: 'segment' }], walls: [], openings: [] })
+    const model = { storeys: [storey(0), storey(1), storey(2)], systems: [], connections: [] } as unknown as Model
+    const lines = bannerLines(model, 'a.ifc')
+    expect(lines.filter((l) => l.includes('▪'))).toHaveLength(3)
+    expect(lines.join('\n')).toContain('층 3 · 물리존 6 · 기기 3')
+    expect(lines.at(-1)).toBe('~ 를 눌러 보세요')
+  })
+})

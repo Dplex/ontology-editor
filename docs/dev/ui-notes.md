@@ -573,3 +573,12 @@ Duplex 20~24ms · 병원 22ms · 성수 19~21ms 다. 성수에서 egg 여덟 개
 - **하지 않은 것.** `refine` 의 2단계(누적 뒤 GTAO 한 장), `shadow` 를 다크에서 밝게 칠하기, 주소로 켠 `rise` 의 첫 장 숨기기(껍데기가 3D 첫 장 뒤에 켜는 약속을 바꿔야 한다).
 - 되돌리려면 `src/eggs/{refine,shadow,rise,wipe}.ts`·`src/eggs/a-eggs.test.ts`, `src/eggs/registry.ts` 의 네 줄, `e2e/eggs.spec.ts` 의 네 시험과
   "움직임을 끈 사람" 의 `rise`·`wipe` 시험, `vite.config.ts` 의 `optimizeDeps.include` 에서 `Sky`·`Pass`·흐림 셰이더 네 줄을 뺀다.
+
+## 숨은 연출 B `banner` — 콘솔 배너 (2026-10-24)
+
+파일을 열면 개발자 도구 콘솔에 글자 건물(층 수만큼 줄)과 `층 · 물리존 · 기기` 수, 마지막 줄 `~ 를 눌러 보세요` 를 한 번 찍는다.
+기본으로 켜진 유일한 egg 다(G2 예외). DOM·3D 를 건드리지 않고 e2e 모드에서는 내려받지도 않는다. 새 파일(모델 객체가 바뀜)일 때만 찍고 편집으로는 찍지 않는다.
+
+- **TTL `feeds` 수는 넣지 않았다.** 계획에는 있지만 TTL 을 지어야 나오는 수라, 파일을 열 때마다 성수에서 0.27초가 기본 경로에 더해진다(G6).
+  수는 층 현황(B-9)과 같은 이름으로 센다. 기기는 덕트·배관을 뺀 수다(`countOf.devices`).
+- 되돌리려면 `src/eggs/banner.ts`, `src/editor/eggs.ts` 의 배너 watch, `a-eggs.test.ts` 의 banner 시험을 뺀다.

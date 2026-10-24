@@ -15,7 +15,7 @@ import type { EggContext, EggHandle, EggSignals } from '../eggs/types'
 import { fullscreen } from './chat-view'
 import { checks } from './checks'
 import { oeHook } from './connections'
-import { canvas, dark, model } from './core'
+import { canvas, dark, fileName, model } from './core'
 import { isTextEntry } from './history'
 import { flying } from './keyboard'
 import { viewStorey } from './multi-view'
@@ -301,6 +301,16 @@ export function setupEggs() {
 
   // egg 가 지어 둔 것을 버릴 때. 편집은 모델을 그 자리에서 고치고 triggerRef 로 알린다(shallowRef 라 watch 가 받는다).
   watch([model, sceneVersion], () => version.value++, { flush: 'sync' })
+  // 콘솔 배너(B, G2 의 유일한 예외 — 기본으로 켜져 있다). 새 파일(모델 객체가 바뀜)을 열 때 한 번 찍는다. 편집은 같은 객체라 찍지 않는다.
+  // e2e 의 콘솔을 어지럽히지 않게 그 모드에서는 내려받지도 않는다.
+  if (import.meta.env.MODE !== 'e2e') {
+    let printed: object | null = null
+    watch(model, (m) => {
+      if (!m || m === printed) return
+      printed = m
+      void import('../eggs/banner').then(({ printBanner }) => printBanner(m, fileName.value))
+    })
+  }
   // 파일을 닫으면 끈다. 3D 칸이 없는데 HUD·층이 남는다.
   watch(model, (m) => {
     if (m) return
