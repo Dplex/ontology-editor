@@ -60,3 +60,38 @@ describe('B 등급 egg 의 계산', () => {
     expect(lines.at(-1)).toBe('~ 를 눌러 보세요')
   })
 })
+
+describe('heat — 풍량 밀도', () => {
+  it('같은 수씩 나눈 구간 경계를 오름차순으로 내고, 값이 든 구간을 찾는다', async () => {
+    const { quantileBreaks, binOf } = await import('./heat')
+    const b = quantileBreaks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 5)
+    expect(b[0]).toBe(1)
+    expect(b.at(-1)).toBe(10)
+    for (let i = 1; i < b.length; i++) expect(b[i]).toBeGreaterThan(b[i - 1])
+    expect(binOf(1, b)).toBe(0)
+    expect(binOf(10, b)).toBe(b.length - 2)
+    expect(quantileBreaks([], 5)).toEqual([])
+    expect(quantileBreaks([4, 4, 4], 5)).toEqual([4, 4])
+  })
+
+  it('값 있는 방은 맡은 말단 풍량 합 ÷ 면적이고, 말단 하나라도 풍량이 없으면 0 이 아니라 값 없음이다', async () => {
+    const { readHeat } = await import('./heat')
+    const sq = [[0, 0], [10, 0], [10, 5], [0, 5], [0, 0]]
+    const eq = (id: string, kind: string, spaceId: string | null, cmh?: number) => ({ id, kind, role: 'terminal', spaceId, ratedAirflow: cmh === undefined ? undefined : { cmh, source: 'bim' } })
+    const model = {
+      storeys: [{ id: 's', elevation: 0, spaces: [{ id: 'a', footprint: sq, areaM2: 50 }, { id: 'b', footprint: sq, areaM2: 50 }, { id: 'c', footprint: sq, areaM2: 50 }], equipment: [
+        eq('ahu', 'ahu', null), eq('d1', 'air_diffuser', 'a', 300), eq('d2', 'air_diffuser', 'a', 200), eq('d3', 'air_diffuser', 'b', 300), eq('d4', 'air_diffuser', 'b'),
+      ], walls: [], openings: [] }],
+      systems: [],
+      connections: ['d1', 'd2', 'd3', 'd4'].map((to) => ({ from: 'ahu', to, directed: true, source: 'port' })),
+    } as unknown as Model
+    const r = readHeat(model)
+    const a = r.rooms.find((x) => x.spaceId === 'a')!
+    const b = r.rooms.find((x) => x.spaceId === 'b')!
+    const c = r.rooms.find((x) => x.spaceId === 'c')!
+    expect(a.value).toBe(10)
+    expect(b).toMatchObject({ value: null, why: 'no-airflow' })
+    expect(c).toMatchObject({ value: null, why: 'no-terminal' })
+    expect(r.sources).toEqual({ bim: 2, edit: 0 })
+  })
+})

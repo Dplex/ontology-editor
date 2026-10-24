@@ -406,6 +406,24 @@ test('blueprint — 켜면 바탕·모서리 선·면·격자를 청사진으로
   expect(errors).toEqual([])
 })
 
+test('heat — 방을 밀도 구간으로 칠하고 값 없는 방은 따로 세며, 가만히 있으면 0장이다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'heat')).toBe(true)
+  const info = (await eggs(page)).inspect.heat
+  expect(info.rooms).toBe(info.valued + info.none)
+  expect(info.rooms).toBeGreaterThan(0)
+  expect(info.meshes).toBeGreaterThan(0)
+  await expect(page.getByTestId('egg-hud-heat')).toContainText('값 없음')
+  await expect(page.getByTestId('egg-hud-heat')).toContainText('화면에서만')
+  await settle(page)
+  const r0 = await viewer<number>(page, 'renders')
+  await page.waitForTimeout(500)
+  expect(await viewer<number>(page, 'renders')).toBe(r0)
+  await oe(page, 'eggOff', 'heat')
+  expect(errors).toEqual([])
+})
+
 test.describe('움직임을 끈 사람', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } })
   test('rise 는 틀지 않고 wipe 는 전환 없이 테마만 바꾼다', async ({ page }) => {

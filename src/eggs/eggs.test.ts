@@ -22,6 +22,9 @@ const LIB_ALLOWED = new Set([
   'src/lib/flow-pulse', // 흐르는 빛 메시
   'src/lib/flow-type', // 계통 종류·색
   'src/lib/kinds', // 종류 사전
+  'src/lib/served', // 담당 공간(airServices) — 연결을 따라 말단을 모을 뿐이다
+  'src/lib/flow-rules', // withInferred — 연결을 펼친 새 목록을 돌려준다(원래 연결은 바꾸지 않는다)
+  'src/lib/flow-review', // fluidConnections — 연결을 거른 새 목록을 돌려준다
 ])
 
 const files = readdirSync(HERE).filter((f) => /\.ts$/.test(f) && !f.endsWith('.test.ts'))
