@@ -10,6 +10,7 @@ export const EGGS: readonly Egg[] = [
   { id: 'shadow', title: '바닥에 앉는 그림자', load: () => import('./shadow') },
   { id: 'rise', title: '층이 올라앉는 오프닝', load: () => import('./rise') },
   { id: 'wipe', title: '테마 원형 번짐', load: () => import('./wipe') },
+  { id: 'blueprint', title: '청사진', load: () => import('./blueprint') },
   // 시험용 본보기(probe.ts). e2e 에서만 든다 — 빌드에서는 이 갈래가 상수로 접혀 사라진다.
   ...(import.meta.env.MODE === 'e2e' ? [{ id: 'probe', title: '시험용 본보기', load: () => import('./probe') }] : []),
 ]

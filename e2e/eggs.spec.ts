@@ -1,10 +1,11 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { openDrawer, pickedCard, pickEquipment } from './edit-part'
 
 // 숨은 연출(egg)의 껍데기(editor/eggs.ts, docs/plans/easter-eggs.md). 기본은 꺼짐이고, 켰다 끄면 3D 층·빛·HUD·GPU 메모리와
 // 내보내는 것(TTL·GeoJSON·모델)이 켜기 전과 같아야 한다. e2e 에서만 목록에 드는 시험용 egg(probe)로 껍데기를 잰다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
+const DUPLEX_ARCH = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
 test.use({ contextOptions: { reducedMotion: 'no-preference' } })
 
 const oe = <T,>(page: Page, fn: string, ...args: unknown[]) =>
@@ -372,6 +373,36 @@ test('wipe — 테마 단추에서 원이 퍼지며 테마가 바뀌고, 끄면 
   await expect.poll(async () => (await eggs(page)).inspect.wipe.running).toBe(false)
   await oe(page, 'eggOff', 'wipe')
   await expect(page.getByTestId('egg-wipe-style')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('blueprint — 켜면 바탕·모서리 선·면·격자를 청사진으로 칠하고, 테마를 바꿔도 청사진이며 끄면 재질이 처음 값으로 돌아온다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  // 벽 형상이 있어야 모서리 선이 있다. 픽스처에는 없어서 Duplex 건축으로 연다(data/ 는 받아야 있다 — 없으면 건너뛴다).
+  test.skip(!existsSync(DUPLEX_ARCH), `${DUPLEX_ARCH} 이 없다. npm run fetch:sample 로 받는다`)
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_ARCH)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  await settle(page)
+  const before = await viewer(page, 'memory')
+  expect(await oe(page, 'eggOn', 'blueprint')).toBe(true)
+  await expect.poll(async () => (await eggs(page)).inspect.blueprint.surfaces).toBeGreaterThan(0)
+  const info = (await eggs(page)).inspect.blueprint
+  expect(info.lines).toBeGreaterThan(0)
+  expect(info.grids).toBe(1)
+  expect(info.background).toBe(true)
+  await settle(page)
+  const r0 = await viewer<number>(page, 'renders')
+  await page.waitForTimeout(500)
+  expect(await viewer<number>(page, 'renders')).toBe(r0)
+  // 테마를 바꾸면 뷰어가 모서리·격자를 되칠한다. 그 뒤 다시 입힌다.
+  await page.locator('.appbar button.theme').click()
+  await expect.poll(async () => (await eggs(page)).inspect.blueprint.lines).toBeGreaterThan(0)
+  await page.locator('.appbar button.theme').click()
+  await oe(page, 'eggOff', 'blueprint')
+  await settle(page)
+  expect(await viewer(page, 'memory')).toEqual(before)
   expect(errors).toEqual([])
 })
 
