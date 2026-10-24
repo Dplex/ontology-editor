@@ -306,7 +306,7 @@ export function enable(ctx: EggContext): EggHandle {
 
   const hud = ctx.hud
   hud.style.cssText =
-    'position:absolute;left:0.75rem;bottom:0.75rem;pointer-events:auto;display:flex;flex-direction:column;gap:0.35rem;padding:0.5rem 0.7rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 92%,transparent);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg);min-width:21rem'
+    'pointer-events:auto;display:flex;flex-direction:column;gap:0.35rem;padding:0.5rem 0.7rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 92%,transparent);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg);min-width:21rem'
 
   const disposables: { dispose(): void }[] = []
   const root = new Group()

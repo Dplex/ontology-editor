@@ -39,6 +39,9 @@ const FALLBACK_KIND_COLORS: Record<string, number> = {
   unknown: 0x2f6fed,
 }
 
+/** 편집 뒤 다시 짓기까지 모으는 시간. */
+export const REBUILD_SETTLE_MS = 250
+
 export type AliveStats = {
   feeds: number
   graphFeeds: number
@@ -245,7 +248,7 @@ export function buildAliveScene(model: Readonly<Model>, dark: boolean): BuiltAli
 export function enable(ctx: EggContext): EggHandle {
   const hud = ctx.hud
   hud.style.cssText =
-    'position:absolute;left:0.75rem;bottom:0.75rem;padding:0.4rem 0.6rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 90%,transparent);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)'
+    'padding:0.4rem 0.6rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 90%,transparent);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)'
 
   const container = new Group()
   let built: BuiltAlive | null = null
@@ -273,9 +276,17 @@ export function enable(ctx: EggContext): EggHandle {
 
   rebuild()
 
+  // 편집 뒤 0.25초 모았다가 한 번 다시 짓는다. 성수에서 한 번에 0.35~0.4초 걸려서, 방향키를 누를 때마다 지으면 그때마다 멈췄다.
+  let timer: ReturnType<typeof setTimeout> | null = null
   const stopModelWatch = watch(
     () => ctx.modelVersion(),
-    () => rebuild(),
+    () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        rebuild()
+      }, REBUILD_SETTLE_MS)
+    },
   )
   const stopThemeWatch = watch(
     () => ctx.dark(),
@@ -303,6 +314,7 @@ export function enable(ctx: EggContext): EggHandle {
     off() {
       stopModelWatch()
       stopThemeWatch()
+      if (timer) clearTimeout(timer)
     },
     inspect() {
       // 여기서 다시 짓지 않는다. 지으면 편집을 따라가지 못하는 버그를 e2e 가 못 본다.

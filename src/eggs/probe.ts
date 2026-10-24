@@ -28,7 +28,7 @@ export function enable(ctx: EggContext): EggHandle {
   ctx.lights({ hemi: 0.5 })
 
   const hud = ctx.hud
-  hud.style.cssText = 'position:absolute;left:0.75rem;bottom:0.75rem;font:12px ui-monospace,monospace;color:var(--muted)'
+  hud.style.cssText = 'font:12px ui-monospace,monospace;color:var(--muted)'
   const paint = (n: number) => (hud.textContent = `probe · 완전성 검사 위반 ${n} · 화면에서만`)
   paint(ctx.signals.violations.value)
   const stop = watch(ctx.signals.violations, paint)

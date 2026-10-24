@@ -250,6 +250,11 @@ test('sun — 대지 좌표가 없는 파일은 서울 기준으로 그리고, �
   expect(info1.azimuthDeg).not.toBe(info0.azimuthDeg)
   expect(info1.shadowUpdates).toBe(2)
 
+  // 시각 막대는 아래 도구 막대(BottomViewDock)에 깔리지 않는다. 깔리면 끌 수 없다.
+  const slider = (await timeSlider.boundingBox())!
+  const dock = (await page.locator('.bottom-view-dock').boundingBox())!
+  expect(slider.y + slider.height).toBeLessThanOrEqual(dock.y)
+
   // 가만히 있을 때는 0장이다.
   const r0 = await viewer<number>(page, 'renders')
   await page.waitForTimeout(500)
@@ -257,6 +262,23 @@ test('sun — 대지 좌표가 없는 파일은 서울 기준으로 그리고, �
 
   await oe(page, 'eggOff', 'sun')
   await settle(page)
+  expect(errors).toEqual([])
+})
+
+test('HUD 는 왼쪽 아래 한 기둥에 쌓여 egg 를 여럿 켜도 서로·도구 막대와 겹치지 않는다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'alive')).toBe(true)
+  expect(await oe(page, 'eggOn', 'xray')).toBe(true)
+  const a = (await page.getByTestId('egg-hud-alive').boundingBox())!
+  const x = (await page.getByTestId('egg-hud-xray').boundingBox())!
+  const dock = (await page.locator('.bottom-view-dock').boundingBox())!
+  const apart = (p: typeof a, q: typeof a) => p.y + p.height <= q.y || q.y + q.height <= p.y || p.x + p.width <= q.x || q.x + q.width <= p.x
+  expect(apart(a, x)).toBe(true)
+  expect(apart(a, dock)).toBe(true)
+  expect(apart(x, dock)).toBe(true)
+  await oe(page, 'eggOff', 'xray')
+  await oe(page, 'eggOff', 'alive')
   expect(errors).toEqual([])
 })
 
@@ -341,6 +363,8 @@ test('wipe — 테마 단추에서 원이 퍼지며 테마가 바뀌고, 끄면 
   await expect.poll(theme).not.toBe(before)
   await expect.poll(async () => (await eggs(page)).inspect.wipe.running).toBe(false)
   expect((await eggs(page)).inspect.wipe.transitions).toBe(1)
+  // 전환 콜백은 화면 갱신(rAF)이 멈춘 동안 돈다. 3D 한 장을 기다리면 늘 시간 초과(0.3초)로 끝났다 — 작업 한 칸만 기다린다.
+  expect((await eggs(page)).inspect.wipe.lastWaitMs).toBeLessThan(150)
   // 한 번 더 누르면 돌아온다.
   await page.locator('.appbar button.theme').click()
   await expect.poll(theme).toBe(before)

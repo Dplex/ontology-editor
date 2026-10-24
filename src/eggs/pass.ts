@@ -202,7 +202,7 @@ export function buildPassSweep(model: Readonly<Model>, storeyViolations: Readonl
 export function enable(ctx: EggContext): EggHandle {
   const hud = ctx.hud
   hud.style.cssText =
-    'position:absolute;left:0.75rem;bottom:0.75rem;display:none;align-items:center;gap:0.45rem;padding:0.4rem 0.65rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 92%,transparent);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)'
+    'display:none;align-items:center;gap:0.45rem;padding:0.4rem 0.65rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 92%,transparent);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)'
 
   const container = new Group()
   let sweep: PassSweep | null = null

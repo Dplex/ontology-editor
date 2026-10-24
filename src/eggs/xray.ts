@@ -38,6 +38,8 @@ const UNKNOWN_CLASS_COLOR = 0xc2185b
 const FADE_IN_MS = 250
 const FADE_OUT_MS = 200
 const CURVE_STEPS = 6
+/** 편집 뒤 다시 짓기까지 모으는 시간. */
+const REBUILD_SETTLE_MS = 250
 
 export type XrayStats = {
   feeds: number
@@ -361,14 +363,19 @@ export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGrap
     buildMs,
   }
 
+  // 선이 많을수록 옅게 칠한다. 성수는 hasPart 가 2만 개라 같은 짙기면 보라색 덩어리가 되어 feeds·점을 덮었다. 수는 그대로다.
+  const thin = (n: number) => Math.min(1, Math.sqrt(1500 / Math.max(1, n)))
+  const locBase = 0.42 * thin(locCount)
+  const partBase = 0.52 * thin(partCount)
+
   return {
     scene,
     stats,
     feedsMesh,
     setOpacity(alpha: number, isDark: boolean) {
       markerMat.opacity = 0.55 * alpha
-      locMat.opacity = 0.42 * alpha
-      partMat.opacity = 0.52 * alpha
+      locMat.opacity = locBase * alpha
+      partMat.opacity = partBase * alpha
       pointsMat.opacity = 0.95 * alpha
       if (feedsMesh) {
         const u = (feedsMesh.material as ShaderMaterial).uniforms
@@ -392,7 +399,7 @@ function isEditableTarget(t: EventTarget | null): boolean {
 export function enable(ctx: EggContext): EggHandle {
   const hud = ctx.hud
   hud.style.cssText =
-    'position:absolute;left:0.75rem;bottom:0.75rem;padding:0.45rem 0.65rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 90%,transparent);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)'
+    'padding:0.45rem 0.65rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 90%,transparent);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)'
   const line1 = document.createElement('div')
   line1.dataset.testid = 'egg-xray-line1'
   const line2 = document.createElement('div')
@@ -512,10 +519,19 @@ export function enable(ctx: EggContext): EggHandle {
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('blur', onBlur)
 
+  // 편집 뒤 0.25초 모았다가 한 번 다시 짓는다(성수에서 한 번에 0.4초). 그사이에는 지어 둔 그래프를 그대로 보인다.
+  let timer: ReturnType<typeof setTimeout> | null = null
   const stopModelWatch = watch(
     () => ctx.modelVersion(),
     () => {
-      if (alpha > 0 || targetAlpha > 0) ensureGraph()
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        if (alpha > 0 || targetAlpha > 0) {
+          ensureGraph()
+          needsFrame = true
+        }
+      }, REBUILD_SETTLE_MS)
     },
   )
 
@@ -528,7 +544,8 @@ export function enable(ctx: EggContext): EggHandle {
         needsFrame = false
         return draw
       }
-      let dirty = false
+      let dirty = needsFrame
+      needsFrame = false
       if (alpha !== targetAlpha) {
         const dur = targetAlpha > fadeFrom ? FADE_IN_MS : FADE_OUT_MS
         const t = Math.min(1, Math.max(0, (now - fadeAt) / dur))
@@ -546,7 +563,8 @@ export function enable(ctx: EggContext): EggHandle {
     },
     afterRender({ renderer, camera }) {
       if (alpha <= 0.001) return
-      const g = ensureGraph()
+      // 지어 둔 것이 있으면 낡았어도 그대로 그린다. 다시 짓기는 위 watch 가 모아서 한다.
+      const g = built ?? ensureGraph()
       if (!g) return
       const isDark = ctx.dark()
       backdropMat.color.setHex(isDark ? 0x111318 : 0x161922)
@@ -573,6 +591,7 @@ export function enable(ctx: EggContext): EggHandle {
   return {
     off() {
       stopModelWatch()
+      if (timer) clearTimeout(timer)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('pointerup', onPointerUp)

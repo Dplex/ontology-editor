@@ -2,15 +2,14 @@
 //
 // - egg 는 테마를 바꾸는 함수를 받지 않는다(G4). 그래서 단추의 click 을 capture 단계에서 먼저 받아 View Transition 으로 감싸고,
 //   그 안에서 같은 단추를 한 번 더 눌러 앱 자기 코드(toggleTheme)가 바꾸게 한다. 저장·3D(setDark)는 평소와 똑같다.
-// - 새 3D 가 한 장 그려진 뒤에 전환을 끝낸다. 먼저 끝내면 다시 짓는 동안의 빈 3D 칸이 원 안에 번쩍인다. 그래서 전환 콜백이
-//   다음 렌더(afterRender)를 기다리는 Promise 를 돌려준다. 늦어도 0.3초면 놓는다.
+// - 전환 콜백은 Vue 가 DOM 을 고칠 틈(작업 한 칸)만 기다린다. 처음에는 새 3D 가 한 장 그려지기를 기다렸는데, 콜백이 도는 동안
+//   브라우저가 화면 갱신(rAF)을 멈춰서 그 한 장은 오지 않고 매번 0.3초 시간 초과로 끝났다(성수에서 잼). 새 화면은 살아 있는 사본이라
+//   3D 칸은 전환이 시작된 뒤 다음 장에서 새 테마로 바뀐다.
 // - 움직임 끄기(still())이거나 브라우저에 View Transition 이 없으면 아무것도 가로채지 않는다 — 그냥 바뀐다.
 // - 바탕 CSS 에 규칙을 더하지 않는다(G6). 전환 기본 애니메이션을 끄는 규칙은 켜 있는 동안만 <style> 하나로 붙인다.
 import type { EggContext, EggHandle } from './types'
 
 export const WIPE_MS = 450
-/** 3D 가 새 테마로 한 장 그려지기를 기다리는 한도. 넘으면 그냥 전환을 끝낸다. */
-const RENDER_WAIT_MS = 300
 /** 편집기 위쪽 막대의 테마 단추(AppBar.vue). 시작 화면에는 egg 가 켜지지 않는다(파일이 열려 있어야 켜진다). */
 const THEME_BUTTON = '.appbar button.theme'
 
@@ -34,21 +33,6 @@ export function enable(ctx: EggContext): EggHandle {
   let running = false
   let transitions = 0
   let lastWaitMs = 0
-  let waiters: (() => void)[] = []
-  let wantFrame = false
-
-  function nextRender(): Promise<void> {
-    wantFrame = true
-    return new Promise((resolve) => {
-      const timer = setTimeout(done, RENDER_WAIT_MS)
-      function done() {
-        clearTimeout(timer)
-        waiters = waiters.filter((w) => w !== done)
-        resolve()
-      }
-      waiters.push(done)
-    })
-  }
 
   const onClick = (e: MouseEvent) => {
     if (passing || running) return
@@ -69,7 +53,8 @@ export function enable(ctx: EggContext): EggHandle {
       } finally {
         passing = false
       }
-      await nextRender()
+      // Vue 의 DOM 고치기(마이크로태스크)가 끝난 뒤에 새 화면을 뜨게 한다.
+      await new Promise((resolve) => setTimeout(resolve, 0))
       lastWaitMs = Math.round(performance.now() - t0)
     })
     transitions++
@@ -85,23 +70,10 @@ export function enable(ctx: EggContext): EggHandle {
   }
   document.addEventListener('click', onClick, { capture: true })
 
-  ctx.addLayer({
-    step() {
-      // 기다리는 전환이 있으면 한 장 그리게 한다. setDark 가 dirty 를 걸지 않는 경우에도 새 테마의 3D 가 나오게.
-      const draw = wantFrame
-      wantFrame = false
-      return draw
-    },
-    afterRender() {
-      for (const w of [...waiters]) w()
-    },
-  })
-
   return {
     off() {
       document.removeEventListener('click', onClick, { capture: true })
       style.remove()
-      for (const w of [...waiters]) w()
     },
     inspect: () => ({ transitions, lastWaitMs, running, supported: typeof doc.startViewTransition === 'function' }),
   }

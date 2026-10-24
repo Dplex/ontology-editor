@@ -54,6 +54,34 @@ const signals: EggSignals = {
   storeyId: computed(() => viewStorey.value),
 }
 
+/**
+ * egg 들의 HUD 를 쌓는 기둥(3D 칸 왼쪽 아래). egg 는 제 HUD 의 자리를 정하지 않는다 — 여럿 켜면 한 자리에 겹쳤고, 아래 도구 막대
+ * (BottomViewDock)에 깔려 sun 의 시각 막대를 끌 수 없었다. 기둥의 아래 끝을 도구 막대 위로 맞추고, 창 크기가 바뀌면 다시 잰다.
+ */
+function hudStack(): HTMLElement {
+  const root = hudRoot()
+  let stack = root.querySelector<HTMLElement>(':scope > .egg-hud-stack')
+  if (!stack) {
+    stack = document.createElement('div')
+    stack.className = 'egg-hud-stack'
+    stack.style.cssText = 'position:absolute;left:0.75rem;display:flex;flex-direction:column;align-items:flex-start;gap:0.4rem;max-width:calc(100% - 1.5rem)'
+    root.append(stack)
+    placeStack(stack)
+  }
+  return stack
+}
+function placeStack(stack: HTMLElement) {
+  const wrap = stack.parentElement?.getBoundingClientRect()
+  const dock = document.querySelector<HTMLElement>('.bottom-view-dock')?.getBoundingClientRect()
+  const gap = 12
+  const over = wrap && dock && dock.height > 0 && dock.bottom > wrap.top ? wrap.bottom - dock.top + 8 : 0
+  stack.style.bottom = `${Math.max(gap, over)}px`
+}
+const onResize = () => {
+  const stack = canvas.value?.parentElement?.querySelector<HTMLElement>(':scope > .egg-hud > .egg-hud-stack')
+  if (stack) placeStack(stack)
+}
+
 /** 3D 칸을 덮는 HUD 상자. 처음 쓰는 egg 가 만들고 그 뒤로 남는다(비어 있으면 아무것도 안 보인다). */
 function hudRoot(): HTMLElement {
   const wrap = canvas.value?.parentElement
@@ -101,7 +129,9 @@ function contextFor(id: string, run: Running): EggContext {
       if (!hud) {
         const el = document.createElement('div')
         el.dataset.testid = `egg-hud-${id}`
-        hudRoot().append(el)
+        const stack = hudStack()
+        stack.append(el)
+        placeStack(stack)
         run.cleanup.push(() => el.remove())
         hud = el
       }
@@ -259,8 +289,10 @@ export function setupEggs() {
   const api = consoleApi()
   Object.assign(oeHook(), api)
   window.addEventListener('keydown', onKey, { capture: true })
+  window.addEventListener('resize', onResize)
   onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKey, { capture: true })
+    window.removeEventListener('resize', onResize)
     for (const id of [...running.keys()]) disableEgg(id)
     closeHub()
     const hook = oeHook()
